@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#123b82">
+<meta name="description" content="Bihar Academic Battle Test Series Store and Question Paper Management">
+<title>Test Series Store | Bihar Academic Battle</title>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+<style>
+:root{
+  --blue:#123b82;--blue2:#2463c7;--gold:#f4b942;
+  --ink:#17233b;--muted:#667085;--bg:#f3f6fc;--line:#dfe6f2;
+  --green:#14733b;--red:#a32121
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}
+header{background:linear-gradient(120deg,#0b2354,#1f56ac);color:white;padding:25px 18px 20px}
+.wrap{max-width:1120px;margin:auto}
+.top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.brand{font-size:clamp(20px,3vw,30px);font-weight:800;letter-spacing:.3px}
+.sub{color:#d8e6ff;margin-top:6px;font-size:14px}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.navbtn,.btn{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}
+.navbtn{background:#ffffff1c;color:#fff;border:1px solid #ffffff35}
+.navbtn.active{background:white;color:var(--blue)}
+main{max-width:1120px;margin:24px auto;padding:0 16px}
+.hero{background:white;border:1px solid var(--line);border-radius:18px;padding:23px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 8px 26px #142c5510}
+h1{margin:0 0 8px;font-size:25px}
+.muted{color:var(--muted);line-height:1.5}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{background:var(--blue);color:white}
+.btn.secondary{background:#eaf1ff;color:var(--blue)}
+.btn.gold{background:var(--gold);color:#352400}
+.btn.danger{background:#fff0f0;color:#a32121}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+#notice{margin:14px 0;padding:12px 14px;border-radius:10px;display:none;overflow-wrap:anywhere}
+.error{display:block!important;background:#fff0f0;color:#a32121}
+.success{display:block!important;background:#e9fff1;color:#126a38}
+.info{display:block!important;background:#eaf1ff;color:#123b82}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}
+.toolbar input,.toolbar select,.field input,.field select,.field textarea{
+  border:1px solid #ccd6e7;border-radius:10px;padding:12px;background:white;font:inherit;min-width:0;width:100%
+}
+.toolbar input{flex:1;min-width:190px}
+.toolbar select{width:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.card{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 6px 22px #142c5508;display:flex;flex-direction:column;gap:12px}
+.pill{display:inline-block;background:#eaf1ff;color:var(--blue);padding:6px 9px;border-radius:999px;font-size:12px;font-weight:700;align-self:flex-start}
+.card h3{margin:0;font-size:19px}
+.price{font-size:27px;font-weight:800;color:var(--blue)}
+.card .desc{color:var(--muted);font-size:14px;line-height:1.5;min-height:40px}
+.card .btn{margin-top:auto}
+.empty{padding:28px;text-align:center;background:white;border:1px dashed #c8d3e5;border-radius:14px;color:var(--muted)}
+.section{margin-top:30px}
+.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.sectionhead h2{margin:0;font-size:21px}
+.hidden{display:none!important}
+.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:22px}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
+.field.full{grid-column:1/-1}
+.field textarea{min-height:80px;resize:vertical}
+.tablewrap{overflow:auto}
+table{border-collapse:collapse;width:100%;min-width:650px}
+th,td{text-align:left;padding:11px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+th{background:#f6f8fc}
+.authbox{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.authbox input{max-width:230px;padding:10px;border:1px solid #ccd6e7;border-radius:9px}
+.footer{text-align:center;color:var(--muted);padding:30px 16px;font-size:13px}
+.question-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:12px 0;background:#fbfcff}
+.question-card h4{margin:0 0 12px}
+.option-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.status{display:inline-block;padding:5px 9px;border-radius:20px;font-size:12px;font-weight:bold}
+.status.published{background:#e7fff0;color:#14733b}
+.status.draft{background:#fff2d6;color:#805800}
+.status.pdf{background:#eaf1ff;color:#123b82}
+.filebox{border:2px dashed #b9c9e2;background:#f8faff;border-radius:12px;padding:20px}
+.filebox input[type=file]{background:white}
+.help{font-size:12px;color:var(--muted);line-height:1.6}
+.paper-row-actions{display:flex;gap:6px;flex-wrap:wrap}
+.paper-row-actions .btn{padding:8px 10px;font-size:12px}
+#pdfProgress{height:8px;background:#e7edf7;border-radius:99px;overflow:hidden;margin-top:12px}
+#pdfProgressBar{height:100%;width:0;background:var(--blue2);transition:width .2s}
+@media(max-width:520px){
+  .hero{padding:17px}main{padding:0 12px}
+  .navbtn{flex:1}.toolbar select{width:100%}
+  .authbox input{max-width:none;width:100%}
+  .panel{padding:15px}
+}
+</style>
+</head>
+
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="brand">BIHAR ACADEMIC BATTLE</div>
+        <div class="sub">Test Series Store · Learn • Practice • Achieve</div>
+      </div>
+      <div id="accountStatus" class="sub">Checking login…</div>
+    </div>
+    <nav>
+      <button class="navbtn active" data-view="store">Test Series Store</button>
+      <button class="navbtn" data-view="mine">My Test Series</button>
+      <button id="adminNav" class="navbtn hidden" data-view="admin">Admin Management</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div id="notice" role="status" aria-live="polite"></div>
+
+  <!-- AUTH -->
+  <section id="authPanel" class="panel">
+    <h2 style="margin-top:0">Sign in to buy a test series</h2>
+    <p class="muted">Use your existing Bihar Academic Battle Firebase email/password account.</p>
+    <div class="authbox">
+      <input id="email" type="email" placeholder="Email address" autocomplete="email">
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+      <button id="loginBtn" class="btn">Sign in</button>
+      <button id="signupBtn" class="btn secondary">Create account</button>
+      <button id="resetBtn" class="btn secondary">Reset password</button>
+    </div>
+  </section>
+
+  <!-- STORE -->
+  <section id="storeView">
+    <div class="hero">
+      <div>
+        <h1>Choose your test series</h1>
+        <div class="muted">Buy once, then access your purchased series from My Test Series.</div>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="refreshStore">Refresh catalogue</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <input id="search" placeholder="Search by class, subject or series…">
+      <select id="classFilter">
+        <option value="">All classes</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+    </div>
+    <div id="seriesGrid" class="grid"><div class="empty">Loading test series…</div></div>
+  </section>
+
+  <!-- MY TEST SERIES -->
+  <section id="mineView" class="section hidden">
+    <div class="sectionhead">
+      <h2>My Test Series</h2>
+      <button id="refreshMine" class="btn secondary">Refresh purchases</button>
+    </div>
+    <p class="muted">Only purchases verified by the server appear here.</p>
+
+    <div id="mineGrid" class="grid">
+      <div class="empty">Sign in to view your purchases.</div>
+    </div>
+
+    <!-- PAPER LIST (User side) -->
+    <div id="paperPanel" class="panel hidden" style="margin-top:24px">
+      <div class="sectionhead">
+        <h2 id="paperHeading">Published Papers</h2>
+        <button id="backToMine" class="btn secondary">← Back to My Series</button>
+      </div>
+      <div id="paperGrid" class="grid"></div>
+    </div>
+  </section>
+
+  <!-- ADMIN -->
+  <section id="adminView" class="section hidden">
+    <div class="sectionhead">
+      <h2>Admin management</h2>
+      <button id="loadAdmin" class="btn secondary">Refresh admin data</button>
+    </div>
+
+    <!-- SERIES FORM -->
+    <div class="panel" style="margin-top:0">
+      <h3 id="formHeading">Add test series</h3>
+      <form id="seriesForm">
+        <input type="hidden" id="seriesId">
+        <div class="formgrid">
+          <div class="field">
+            <label for="sTitle">Series title</label>
+            <input id="sTitle" required maxlength="120" placeholder="Bihar GK Mega Test Series">
+          </div>
+          <div class="field">
+            <label for="sSubject">Subject</label>
+            <input id="sSubject" required placeholder="Bihar GK">
+          </div>
+          <div class="field">
+            <label for="sClass">Class</label>
+            <select id="sClass" required>
+              <option value="">Choose class</option>
+              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+              <option>All Classes</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sPrice">Price (₹)</label>
+            <input id="sPrice" type="number" min="1" max="50000" step="1" required placeholder="199">
+          </div>
+          <div class="field">
+            <label for="sCount">Number of tests</label>
+            <input id="sCount" type="number" min="1" max="1000" step="1" required placeholder="10">
+          </div>
+          <div class="field">
+            <label for="sActive">Visibility</label>
+            <select id="sActive">
+              <option value="true">Published / for sale</option>
+              <option value="false">Draft / hidden</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="sDesc">Description</label>
+            <textarea id="sDesc" maxlength="1000" placeholder="What is included in this series?"></textarea>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:14px">
+          <button class="btn" type="submit">Save series</button>
+          <button class="btn secondary" type="button" id="clearForm">Clear form</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- PDF PAPER FORM -->
+    <div class="panel" id="pdfPaperPanel">
+      <h3 id="pdfFormHeading">Upload PDF Question Paper</h3>
+      <p class="muted">Upload a PDF paper and link it to a test series.</p>
+
+      <form id="pdfPaperForm">
+        <input type="hidden" id="pdfPaperId">
+        <div class="formgrid">
+          <div class="field">
+            <label for="pdfPaperTitle">Paper title</label>
+            <input id="pdfPaperTitle" required maxlength="150" placeholder="Class 8 Mathematics Question Paper">
+          </div>
+          <div class="field">
+            <label for="pdfSeriesId">Link to Series</label>
+            <select id="pdfSeriesId">
+              <option value="">— Select Series (recommended) —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pdfPaperClass">Class</label>
+            <select id="pdfPaperClass" required>
+              <option value="">Choose class</option>
+              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pdfPaperSubject">Subject</label>
+            <select id="pdfPaperSubject" required>
+              <option value="">Choose subject</option>
+              <option>Bihar GK</option><option>Mathematics</option><option>Science</option>
+              <option>Computer</option><option>English</option><option>Hindi</option>
+              <option>Social Science</option><option>General Knowledge</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pdfPaperDuration">Duration (minutes)</label>
+            <input id="pdfPaperDuration" type="number" min="1" max="300" value="60" required>
+          </div>
+          <div class="field">
+            <label for="pdfPaperStatus">Publication status</label>
+            <select id="pdfPaperStatus">
+              <option value="draft">Draft / hidden</option>
+              <option value="published">Publish after upload</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="pdfPaperInstructions">Instructions (optional)</label>
+            <textarea id="pdfPaperInstructions" maxlength="2000" placeholder="Read all questions carefully."></textarea>
+          </div>
+          <div class="field full">
+            <label for="pdfPaperFile">Question paper PDF</label>
+            <div class="filebox">
+              <input id="pdfPaperFile" type="file" accept=".pdf,application/pdf">
+              <p class="help">PDF only. Max 10 MB. Required for new paper.</p>
+              <div id="selectedPdfName" class="muted" style="margin-top:8px">No PDF selected.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="pdfProgress" class="hidden">
+          <div id="pdfProgressBar"></div>
+        </div>
+        <div id="pdfUploadStatus" class="help" style="margin-top:8px"></div>
+
+        <div class="actions" style="margin-top:16px">
+          <button class="btn" type="submit" id="savePdfPaperBtn">Save PDF Paper</button>
+          <button class="btn secondary" type="button" id="clearPdfPaperBtn">Clear PDF Form</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- MCQ PAPER FORM -->
+    <div class="panel" id="questionPaperPanel">
+      <h3 id="paperFormHeading">Add Question Paper (MCQ)</h3>
+      <p class="muted">Create MCQ question papers and link them to a test series.</p>
+      <form id="paperForm">
+        <input type="hidden" id="paperId">
+        <div class="formgrid">
+          <div class="field">
+            <label for="paperTitle">Paper title</label>
+            <input id="paperTitle" required maxlength="150" placeholder="Class 8 Mathematics Test">
+          </div>
+          <div class="field">
+            <label for="paperSeriesId">Link to Series</label>
+            <select id="paperSeriesId">
+              <option value="">— Select Series (recommended) —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="paperClass">Class</label>
+            <select id="paperClass" required>
+              <option value="">Choose class</option>
+              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="paperSubject">Subject</label>
+            <select id="paperSubject" required>
+              <option value="">Choose subject</option>
+              <option>Bihar GK</option><option>Mathematics</option><option>Science</option>
+              <option>Computer</option><option>English</option><option>Hindi</option>
+              <option>Social Science</option><option>General Knowledge</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="paperDuration">Duration (minutes)</label>
+            <input id="paperDuration" type="number" min="1" max="300" value="60" required>
+          </div>
+          <div class="field">
+            <label for="paperMarks">Marks per question</label>
+            <input id="paperMarks" type="number" min="1" max="100" value="1" required>
+          </div>
+          <div class="field">
+            <label for="paperStatus">Publication status</label>
+            <select id="paperStatus">
+              <option value="draft">Draft / hidden</option>
+              <option value="published">Published</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label for="paperInstructions">Instructions</label>
+            <textarea id="paperInstructions" maxlength="2000" placeholder="Read each question carefully before answering."></textarea>
+          </div>
+        </div>
+
+        <div class="section" style="margin-top:22px">
+          <div class="sectionhead">
+            <h2>Questions</h2>
+            <button class="btn secondary" type="button" id="addPaperQuestion">+ Add question</button>
+          </div>
+          <div id="paperQuestions"><div class="empty">Click “Add question” to begin.</div></div>
+        </div>
+
+        <div class="actions" style="margin-top:18px">
+          <button class="btn" type="submit" id="savePaperBtn">Save question paper</button>
+          <button class="btn secondary" type="button" id="clearPaperForm">Clear paper form</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- SAVED PAPERS -->
+    <div class="panel">
+      <div class="sectionhead">
+        <h2>Saved Question Papers</h2>
+        <button class="btn secondary" type="button" id="refreshPapers">Refresh papers</button>
+      </div>
+      <div id="adminPapers" class="tablewrap">
+        <p class="muted">Loading saved papers requires a signed-in administrator.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Catalogue management</h3>
+      <div id="adminSeries" class="tablewrap"><p class="muted">Admin access required.</p></div>
+    </div>
+
+    <div class="panel">
+      <h3>Verified purchases</h3>
+      <div id="adminPurchases" class="tablewrap"><p class="muted">Load admin data to view purchases.</p></div>
+    </div>
+  </section>
+</main>
+
+<div class="footer">
+  © <span id="year"></span> Bihar Academic Battle · Secure purchases are verified on the server.
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

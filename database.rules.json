@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "testSeries": {
+      ".read": true,
+      ".write": false
+    },
+    "purchases": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "paymentOrders": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

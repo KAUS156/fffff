@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123c8c">
+  <meta name="description" content="Access your purchased Bihar Academic Battle test series, MCQ papers and PDF papers.">
+  <title>My Test Series | Bihar Academic Battle</title>
+  <style>
+    *{box-sizing:border-box}
+    :root{--blue:#123c8c;--blue2:#1763c6;--ink:#17233d;--muted:#65728b;--line:#dfe7f4;--bg:#f2f6ff}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
+    header{background:linear-gradient(135deg,#102b67,#1763c6);color:#fff;padding:24px 16px}
+    .wrap{width:min(1120px,94%);margin:auto}
+    .brand{font-size:22px;font-weight:800;letter-spacing:.3px}
+    .subtitle{font-size:14px;color:#e1eaff;margin-top:7px}
+    main{padding:24px 0 42px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+    h1{font-size:clamp(24px,4vw,32px);margin:0}
+    h2{font-size:21px;margin:0 0 12px}
+    h3{font-size:17px;margin:0 0 8px}
+    .muted{color:var(--muted);line-height:1.6}
+    .actions{display:flex;gap:9px;flex-wrap:wrap}
+    button,.btn{border:0;border-radius:9px;padding:11px 15px;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;text-decoration:none}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .primary{background:var(--blue2);color:#fff}
+    .secondary{background:#fff;color:var(--blue);border:1px solid #d4def0}
+    .panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 7px 24px #183b780b}
+    .status{margin-bottom:16px;padding:12px 14px;border-radius:10px;background:#eaf1ff;color:#214a91;line-height:1.5;overflow-wrap:anywhere}
+    .status.error{background:#fff0f0;color:#a51d2d}
+    .status.success{background:#e9f9ef;color:#176b38}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:15px}
+    .card{border:1px solid var(--line);border-radius:14px;padding:17px;background:#fff;min-width:0}
+    .card h3{overflow-wrap:anywhere}
+    .card p{font-size:14px;color:var(--muted);line-height:1.55;overflow-wrap:anywhere}
+    .tag{display:inline-block;background:#e9f1ff;color:#174ca4;padding:5px 9px;border-radius:30px;font-size:11px;font-weight:800;letter-spacing:.4px;margin-bottom:10px}
+    .empty{text-align:center;padding:30px 12px;color:var(--muted);line-height:1.7}
+    .hidden{display:none!important}
+    .paper-row{display:flex;justify-content:space-between;align-items:center;gap:14px;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px}
+    .paper-info{min-width:0}.paper-info p{margin:5px 0 0;font-size:13px;color:var(--muted);line-height:1.5}
+    .paper-row .actions{flex-shrink:0}
+    .question{padding:15px 0;border-bottom:1px solid #e8edf6}
+    .question:last-child{border-bottom:0}
+    .option{display:flex;gap:9px;align-items:flex-start;padding:9px 10px;margin-top:7px;border:1px solid var(--line);border-radius:9px;cursor:pointer;line-height:1.45}
+    .option input{margin-top:3px}
+    .option:has(input:checked){background:#eef4ff;border-color:#8bb3f1}
+    .notice{background:#fff8e8;border:1px solid #f2dfaa;color:#755519;border-radius:10px;padding:12px;line-height:1.55;font-size:13px;margin-bottom:14px}
+    .pdf-frame{width:100%;height:72vh;border:1px solid var(--line);border-radius:10px;background:#f8faff}
+    footer{text-align:center;color:#68748b;padding:20px 12px;font-size:13px}
+    @media(max-width:650px){.panel{padding:14px}.paper-row{align-items:flex-start;flex-direction:column}.paper-row .actions{width:100%}.paper-row button{width:100%}.top .actions{width:100%}.top .actions>*{flex:1}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">BIHAR ACADEMIC BATTLE</div>
+    <div class="subtitle">Your purchased test series and question papers</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="top">
+    <div>
+      <h1>My Test Series</h1>
+      <div class="muted">Access purchased series, published MCQ tests and PDF papers.</div>
+    </div>
+    <div class="actions">
+      <button id="refreshBtn" class="secondary" type="button">↻ Refresh</button>
+      <a class="btn primary" href="./store.html">← Back to Store</a>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div id="status" class="status" role="status" aria-live="polite">Checking login…</div>
+    <div id="loginActions" class="actions hidden">
+      <a class="btn primary" href="./login.html">Sign in</a>
+      <a class="btn secondary" href="./store.html">Browse Test Series</a>
+    </div>
+    <div id="mineGrid" class="grid">
+      <div class="empty">Loading purchases…</div>
+    </div>
+  </section>
+
+  <section id="papersPanel" class="panel hidden">
+    <div class="top">
+      <div>
+        <h2 id="papersHeading">Available Papers</h2>
+        <div id="papersSubheading" class="muted">Published papers included with this series.</div>
+      </div>
+      <button id="backToSeriesBtn" class="secondary" type="button">← My Series</button>
+    </div>
+    <div id="papersList"></div>
+  </section>
+
+  <section id="viewerPanel" class="panel hidden">
+    <div class="top">
+      <div>
+        <h2 id="viewerTitle">Paper</h2>
+        <div id="viewerMeta" class="muted"></div>
+      </div>
+      <button id="closeViewerBtn" class="secondary" type="button">Close paper</button>
+    </div>
+    <div id="viewerContent"></div>
+  </section>
+</main>
+
+<footer>© <span id="year"></span> Bihar Academic Battle. All rights reserved.</footer>
+
+<script type="module">
+  /*
+    This file expects public/firebase.js to export an initialized Firebase Auth:
+      export const auth = getAuth(app);
+
+    If your firebase.js is in a different location, update the import below.
+  */
+  import { auth } from "./firebase.js";
+  import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
+
+  const $ = id => document.getElementById(id);
+  const statusBox = $("status");
+  const mineGrid = $("mineGrid");
+  const papersPanel = $("papersPanel");
+  const papersList = $("papersList");
+  const viewerPanel = $("viewerPanel");
+  let currentUser = null;
+  let seriesItems = [];
+  let paperItems = [];
+  let selectedSeries = null;
+  let requestNo = 0;
+  let activeObjectUrl = null;
+
+  $("year").textContent = new Date().getFullYear();
+
+  function setStatus(message, type = "") {
+    statusBox.textContent = message;
+    statusBox.className = "status" + (type ? " " + type : "");
+  }
+
+  function el(tag, className = "", text = "") {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  async function api(url, options = {}) {
+    if (!currentUser) throw new Error("Please sign in first.");
+    const token = await currentUser.getIdToken();
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", "Bearer " + token);
+    if (options.body && !(options.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
+    headers.set("Accept", "application/json");
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      cache: "no-store"
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || `Request failed (${response.status})`);
+    }
+    return data;
+  }
+
+  function cleanText(value, fallback = "—") {
+    const result = String(value ?? "").trim();
+    return result || fallback;
+  }
+
+  function norm(value) {
+    return String(value || "").trim().toLowerCase()
+      .replace(/^class\s*/, "").replace(/\s+/g, " ");
+  }
+
+  function matchesSeries(paper, series) {
+    const classMatch =
+      norm(paper.className) === norm(series.className) ||
+      norm(paper.className) === "all classes" ||
+      norm(series.className) === "all classes";
+    const subjectMatch = norm(paper.subject) === norm(series.subject);
+    return classMatch && subjectMatch;
+  }
+
+  function showSeriesList() {
+    papersPanel.classList.add("hidden");
+    viewerPanel.classList.add("hidden");
+    mineGrid.parentElement.classList.remove("hidden");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function showPapersPanel() {
+    papersPanel.classList.remove("hidden");
+    viewerPanel.classList.add("hidden");
+    window.scrollTo({ top: papersPanel.offsetTop - 12, behavior: "smooth" });
+  }
+
+  function clearViewer() {
+    if (activeObjectUrl) {
+      URL.revokeObjectURL(activeObjectUrl);
+      activeObjectUrl = null;
+    }
+    $("viewerContent").replaceChildren();
+    viewerPanel.classList.add("hidden");
+  }
+
+  function renderSeries() {
+    mineGrid.replaceChildren();
+
+    if (!seriesItems.length) {
+      mineGrid.appendChild(el("div", "empty",
+        "No active purchases found. Visit the store to explore available test series."));
+      return;
+    }
+
+    for (const series of seriesItems) {
+      const card = el("article", "card");
+      card.appendChild(el("span", "tag", "PURCHASED"));
+      card.appendChild(el("h3", "", series.title || "Test Series"));
+      card.appendChild(el("p", "", `Class: ${cleanText(series.className)}`));
+      card.appendChild(el("p", "", `Subject: ${cleanText(series.subject)}`));
+      if (series.description) card.appendChild(el("p", "", series.description));
+
+      const rupees = Number(series.purchase?.amountPaise || 0) / 100;
+      card.appendChild(el("p", "", `Purchase amount: ₹${rupees.toFixed(2)}`));
+
+      const purchasedAt = series.purchase?.purchasedAt;
+      if (purchasedAt) {
+        const date = typeof purchasedAt === "number"
+          ? new Date(purchasedAt).toLocaleDateString()
+          : String(purchasedAt);
+        card.appendChild(el("p", "", `Purchased: ${date}`));
+      }
+
+      const button = el("button", "primary", "View available papers →");
+      button.type = "button";
+      button.addEventListener("click", () => openSeries(series));
+      card.appendChild(button);
+      mineGrid.appendChild(card);
+    }
+  }
+
+  async function loadPurchases() {
+    if (!currentUser) return;
+    const thisRequest = ++requestNo;
+    $("refreshBtn").disabled = true;
+    setStatus("Loading your purchases…");
+    mineGrid.replaceChildren(el("div", "empty", "Please wait…"));
+
+    try {
+      const data = await api("/api/my-series");
+      if (thisRequest !== requestNo) return;
+
+      seriesItems = Array.isArray(data?.series) ? data.series : [];
+      renderSeries();
+      setStatus(
+        seriesItems.length
+          ? `${seriesItems.length} purchased test series loaded.`
+          : "You are signed in, but no active purchases were found.",
+        "success"
+      );
+
+      const params = new URLSearchParams(location.search);
+      const requestedSeriesId = params.get("seriesId");
+      if (requestedSeriesId) {
+        const match = seriesItems.find(s => String(s.id) === requestedSeriesId);
+        if (match) await openSeries(match, false);
+      }
+    } catch (error) {
+      if (thisRequest !== requestNo) return;
+      console.error(error);
+      mineGrid.replaceChildren(el("div", "empty", "Could not load your purchases. Please try again."));
+      setStatus(error.message || "Could not load purchases.", "error");
+    } finally {
+      if (thisRequest === requestNo) $("refreshBtn").disabled = false;
+    }
+  }
+
+  async function openSeries(series, scroll = true) {
+    selectedSeries = series;
+    clearViewer();
+    $("papersHeading").textContent = series.title || "Available Papers";
+    $("papersSubheading").textContent =
+      `${cleanText(series.className)} • ${cleanText(series.subject)} • Published papers included with this series`;
+    papersList.replaceChildren(el("div", "empty", "Loading papers…"));
+    showPapersPanel();
+    if (!scroll) window.scrollTo({ top: papersPanel.offsetTop - 12, behavior: "auto" });
+
+    try {
+      const data = await api("/api/papers");
+      paperItems = Array.isArray(data?.papers) ? data.papers : [];
+      const matching = paperItems.filter(p => matchesSeries(p, series));
+      renderPapers(matching);
+    } catch (error) {
+      console.error(error);
+      papersList.replaceChildren(el("div", "empty", error.message || "Could not load papers."));
+    }
+  }
+
+  function renderPapers(papers) {
+    papersList.replaceChildren();
+
+    if (!papers.length) {
+      papersList.appendChild(el("div", "empty",
+        "No published papers match this series yet. Please check again later."));
+      return;
+    }
+
+    for (const paper of papers) {
+      const row = el("div", "paper-row");
+      const info = el("div", "paper-info");
+      info.appendChild(el("h3", "", paper.title || "Question Paper"));
+      info.appendChild(el("p", "",
+        `${cleanText(paper.className)} • ${cleanText(paper.subject)} • ${Number(paper.durationMinutes || 60)} minutes • ${paper.type === "pdf" ? "PDF" : "MCQ"}`));
+      row.appendChild(info);
+
+      const actions = el("div", "actions");
+      const button = el("button", "primary",
+        paper.type === "pdf" || paper.pdf ? "Open PDF" : "Attempt MCQ");
+      button.type = "button";
+      button.addEventListener("click", () => {
+        if (paper.type === "pdf" || paper.pdf) openPdf(paper);
+        else openMcq(paper);
+      });
+      actions.appendChild(button);
+      row.appendChild(actions);
+      papersList.appendChild(row);
+    }
+  }
+
+  async function openPdf(paper) {
+    clearViewer();
+    $("viewerTitle").textContent = paper.title || "PDF Paper";
+    $("viewerMeta").textContent = `${cleanText(paper.className)} • ${cleanText(paper.subject)}`;
+    $("viewerContent").appendChild(el("div", "status", "Loading protected PDF…"));
+    viewerPanel.classList.remove("hidden");
+    window.scrollTo({ top: viewerPanel.offsetTop - 12, behavior: "smooth" });
+
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`/api/papers/${encodeURIComponent(paper.id)}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        let message = "Could not open PDF.";
+        try {
+          const data = await response.json();
+          message = data.error || message;
+        } catch {}
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      activeObjectUrl = URL.createObjectURL(blob);
+      const frame = el("iframe", "pdf-frame");
+      frame.title = paper.title || "Question paper PDF";
+      frame.src = activeObjectUrl;
+      $("viewerContent").replaceChildren(frame);
+
+      const download = el("a", "btn secondary", "Open PDF in new tab");
+      download.href = activeObjectUrl;
+      download.target = "_blank";
+      download.rel = "noopener";
+      download.style.marginTop = "12px";
+      $("viewerContent").appendChild(download);
+    } catch (error) {
+      $("viewerContent").replaceChildren(
+        el("div", "status error", error.message || "Could not open PDF.")
+      );
+    }
+  }
+
+  async function openMcq(paper) {
+    clearViewer();
+    $("viewerTitle").textContent = paper.title || "MCQ Paper";
+    $("viewerMeta").textContent = `${cleanText(paper.className)} • ${cleanText(paper.subject)}`;
+    $("viewerContent").replaceChildren(el("div", "status", "Loading questions…"));
+    viewerPanel.classList.remove("hidden");
+    window.scrollTo({ top: viewerPanel.offsetTop - 12, behavior: "smooth" });
+
+    try {
+      const data = await api(`/api/papers/${encodeURIComponent(paper.id)}/questions`);
+      const item = data?.paper;
+      if (!item || !Array.isArray(item.questions)) {
+        throw new Error("Question data is not available.");
+      }
+
+      const container = el("div");
+      if (item.instructions) {
+        container.appendChild(el("div", "notice", item.instructions));
+      }
+      container.appendChild(el("div", "notice",
+        `Duration: ${Number(item.durationMinutes || 60)} minutes. This page displays questions only; the current server does not provide a submission/scoring endpoint.`));
+
+      const form = el("form");
+      item.questions.forEach((question, index) => {
+        const block = el("div", "question");
+        block.appendChild(el("h3", "", `${index + 1}. ${question.question}`));
+        (question.options || []).forEach((option, optionIndex) => {
+          const label = el("label", "option");
+          const input = document.createElement("input");
+          input.type = "radio";
+          input.name = `q_${index}`;
+          input.value = String(optionIndex);
+          const textNode = el("span", "", option);
+          label.appendChild(input);
+          label.appendChild(textNode);
+          block.appendChild(label);
+        });
+        form.appendChild(block);
+      });
+
+      const footer = el("div", "actions");
+      footer.style.marginTop = "16px";
+      const count = el("span", "muted", `${item.questions.length} questions loaded`);
+      footer.appendChild(count);
+      form.appendChild(footer);
+      container.replaceChildren(form);
+      $("viewerContent").replaceChildren(container);
+    } catch (error) {
+      $("viewerContent").replaceChildren(
+        el("div", "status error", error.message || "Could not load MCQ questions.")
+      );
+    }
+  }
+
+  $("refreshBtn").addEventListener("click", loadPurchases);
+  $("backToSeriesBtn").addEventListener("click", showSeriesList);
+  $("closeViewerBtn").addEventListener("click", () => {
+    clearViewer();
+    showPapersPanel();
+  });
+
+  onAuthStateChanged(auth, async user => {
+    currentUser = user;
+    if (!user) {
+      ++requestNo;
+      seriesItems = [];
+      mineGrid.replaceChildren(el("div", "empty", "Please sign in to view your purchases."));
+      $("loginActions").classList.remove("hidden");
+      $("refreshBtn").disabled = true;
+      setStatus("You are not signed in.");
+      return;
+    }
+
+    $("loginActions").classList.add("hidden");
+    $("refreshBtn").disabled = false;
+    await loadPurchases();
+  });
+</script>
+//jvjvdjd
+
+</body>
+</html>
