@@ -1,410 +1,1550 @@
-<!doctype html>
+
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#123b82">
-<meta name="description" content="Bihar Academic Battle Test Series Store and Question Paper Management">
-<title>Test Series Store | Bihar Academic Battle</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#123b82">
 
-<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <title>BIHAR ACADEMIC BATTLE | Online Test Series</title>
+  <meta name="description" content="BIHAR ACADEMIC BATTLE - Online Test Series, MCQ Practice, PDF Study Material and Competitive Exam Preparation.">
 
-<style>
-:root{
-  --blue:#123b82;--blue2:#2463c7;--gold:#f4b942;
-  --ink:#17233b;--muted:#667085;--bg:#f3f6fc;--line:#dfe6f2;
-  --green:#14733b;--red:#a32121
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}
-header{background:linear-gradient(120deg,#0b2354,#1f56ac);color:white;padding:25px 18px 20px}
-.wrap{max-width:1120px;margin:auto}
-.top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
-.brand{font-size:clamp(20px,3vw,30px);font-weight:800;letter-spacing:.3px}
-.sub{color:#d8e6ff;margin-top:6px;font-size:14px}
-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
-.navbtn,.btn{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}
-.navbtn{background:#ffffff1c;color:#fff;border:1px solid #ffffff35}
-.navbtn.active{background:white;color:var(--blue)}
-main{max-width:1120px;margin:24px auto;padding:0 16px}
-.hero{background:white;border:1px solid var(--line);border-radius:18px;padding:23px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 8px 26px #142c5510}
-h1{margin:0 0 8px;font-size:25px}
-.muted{color:var(--muted);line-height:1.5}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
-.btn{background:var(--blue);color:white}
-.btn.secondary{background:#eaf1ff;color:var(--blue)}
-.btn.gold{background:var(--gold);color:#352400}
-.btn.danger{background:#fff0f0;color:#a32121}
-.btn:disabled{opacity:.55;cursor:not-allowed}
-#notice{margin:14px 0;padding:12px 14px;border-radius:10px;display:none;overflow-wrap:anywhere}
-.error{display:block!important;background:#fff0f0;color:#a32121}
-.success{display:block!important;background:#e9fff1;color:#126a38}
-.info{display:block!important;background:#eaf1ff;color:#123b82}
-.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}
-.toolbar input,.toolbar select,.field input,.field select,.field textarea{
-  border:1px solid #ccd6e7;border-radius:10px;padding:12px;background:white;font:inherit;min-width:0;width:100%
-}
-.toolbar input{flex:1;min-width:190px}
-.toolbar select{width:auto}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
-.card{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 6px 22px #142c5508;display:flex;flex-direction:column;gap:12px}
-.pill{display:inline-block;background:#eaf1ff;color:var(--blue);padding:6px 9px;border-radius:999px;font-size:12px;font-weight:700;align-self:flex-start}
-.card h3{margin:0;font-size:19px}
-.price{font-size:27px;font-weight:800;color:var(--blue)}
-.card .desc{color:var(--muted);font-size:14px;line-height:1.5;min-height:40px}
-.card .btn{margin-top:auto}
-.empty{padding:28px;text-align:center;background:white;border:1px dashed #c8d3e5;border-radius:14px;color:var(--muted)}
-.section{margin-top:30px}
-.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.sectionhead h2{margin:0;font-size:21px}
-.hidden{display:none!important}
-.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:22px}
-.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-.field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}
-.field.full{grid-column:1/-1}
-.field textarea{min-height:80px;resize:vertical}
-.tablewrap{overflow:auto}
-table{border-collapse:collapse;width:100%;min-width:650px}
-th,td{text-align:left;padding:11px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
-th{background:#f6f8fc}
-.authbox{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-.authbox input{max-width:230px;padding:10px;border:1px solid #ccd6e7;border-radius:9px}
-.footer{text-align:center;color:var(--muted);padding:30px 16px;font-size:13px}
-.question-card{border:1px solid var(--line);border-radius:12px;padding:15px;margin:12px 0;background:#fbfcff}
-.question-card h4{margin:0 0 12px}
-.option-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
-.status{display:inline-block;padding:5px 9px;border-radius:20px;font-size:12px;font-weight:bold}
-.status.published{background:#e7fff0;color:#14733b}
-.status.draft{background:#fff2d6;color:#805800}
-.status.pdf{background:#eaf1ff;color:#123b82}
-.filebox{border:2px dashed #b9c9e2;background:#f8faff;border-radius:12px;padding:20px}
-.filebox input[type=file]{background:white}
-.help{font-size:12px;color:var(--muted);line-height:1.6}
-.paper-row-actions{display:flex;gap:6px;flex-wrap:wrap}
-.paper-row-actions .btn{padding:8px 10px;font-size:12px}
-#pdfProgress{height:8px;background:#e7edf7;border-radius:99px;overflow:hidden;margin-top:12px}
-#pdfProgressBar{height:100%;width:0;background:var(--blue2);transition:width .2s}
-@media(max-width:520px){
-  .hero{padding:17px}main{padding:0 12px}
-  .navbtn{flex:1}.toolbar select{width:100%}
-  .authbox input{max-width:none;width:100%}
-  .panel{padding:15px}
-}
-</style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --blue:#123b82;
+      --blue2:#2463c7;
+      --gold:#f4b942;
+      --ink:#17233b;
+      --muted:#667085;
+      --bg:#f3f6fc;
+      --line:#dfe6f2;
+      --green:#14733b;
+      --red:#a32121;
+      --white:#fff;
+      --shadow:0 8px 30px rgba(20,45,90,.08);
+      --radius:16px;
+    }
+
+    * {
+      box-sizing:border-box;
+      margin:0;
+      padding:0;
+    }
+
+    body {
+      font-family:Inter,sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+      min-height:100vh;
+    }
+
+    button,input,select,textarea {
+      font:inherit;
+    }
+
+    button {
+      cursor:pointer;
+    }
+
+    .hidden {
+      display:none!important;
+    }
+
+    .container {
+      width:min(1200px,94%);
+      margin:auto;
+    }
+
+    header {
+      background:#fff;
+      border-bottom:1px solid var(--line);
+      position:sticky;
+      top:0;
+      z-index:100;
+    }
+
+    .header-inner {
+      min-height:75px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:18px;
+      flex-wrap:wrap;
+    }
+
+    .brand {
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .brand-logo {
+      width:48px;
+      height:48px;
+      border-radius:13px;
+      display:grid;
+      place-items:center;
+      color:white;
+      background:linear-gradient(135deg,var(--blue),var(--blue2));
+      font-weight:800;
+      font-size:19px;
+    }
+
+    .brand h1 {
+      font-family:Poppins,sans-serif;
+      font-size:17px;
+      color:var(--blue);
+      line-height:1.3;
+    }
+
+    .brand small {
+      color:var(--muted);
+      font-size:11px;
+    }
+
+    nav {
+      display:flex;
+      align-items:center;
+      gap:7px;
+      flex-wrap:wrap;
+    }
+
+    nav button {
+      background:transparent;
+      border:0;
+      padding:10px 13px;
+      border-radius:9px;
+      color:var(--muted);
+      font-weight:600;
+      font-size:13px;
+    }
+
+    nav button:hover,
+    nav button.active {
+      background:#eaf1ff;
+      color:var(--blue);
+    }
+
+    .logout-btn {
+      background:#fff0f0!important;
+      color:var(--red)!important;
+    }
+
+    main {
+      padding:25px 0 60px;
+    }
+
+    .page-title {
+      margin-bottom:22px;
+    }
+
+    .page-title h2 {
+      font-family:Poppins,sans-serif;
+      font-size:25px;
+      margin-bottom:5px;
+    }
+
+    .page-title p {
+      color:var(--muted);
+      font-size:14px;
+    }
+
+    .card {
+      background:white;
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      padding:22px;
+      box-shadow:var(--shadow);
+    }
+
+    .section {
+      margin-bottom:25px;
+    }
+
+    .section-heading {
+      font-size:19px;
+      font-weight:800;
+      margin-bottom:15px;
+    }
+
+    .btn {
+      border:0;
+      border-radius:9px;
+      padding:11px 17px;
+      background:var(--blue);
+      color:white;
+      font-weight:700;
+      font-size:13px;
+      transition:.2s;
+    }
+
+    .btn:hover {
+      background:var(--blue2);
+      transform:translateY(-1px);
+    }
+
+    .btn-secondary {
+      background:#eaf1ff;
+      color:var(--blue);
+    }
+
+    .btn-danger {
+      background:#fff0f0;
+      color:var(--red);
+    }
+
+    .btn-gold {
+      background:var(--gold);
+      color:#302000;
+    }
+
+    .btn-small {
+      padding:8px 11px;
+      font-size:12px;
+    }
+
+    .toolbar {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:17px;
+    }
+
+    .toolbar-group {
+      display:flex;
+      gap:9px;
+      flex-wrap:wrap;
+    }
+
+    input,select,textarea {
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:9px;
+      padding:12px;
+      background:white;
+      color:var(--ink);
+      outline:none;
+      font-size:13px;
+    }
+
+    input:focus,select:focus,textarea:focus {
+      border-color:var(--blue2);
+      box-shadow:0 0 0 3px rgba(36,99,199,.1);
+    }
+
+    textarea {
+      resize:vertical;
+      min-height:85px;
+    }
+
+    label {
+      display:block;
+      font-weight:700;
+      font-size:13px;
+      margin-bottom:7px;
+    }
+
+    .form-group {
+      margin-bottom:15px;
+    }
+
+    .form-grid {
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:14px;
+    }
+
+    .form-actions {
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .status-pill {
+      display:inline-flex;
+      padding:5px 10px;
+      background:#e9f8ef;
+      color:var(--green);
+      border-radius:30px;
+      font-size:11px;
+      font-weight:800;
+    }
+
+    .empty-state {
+      padding:30px;
+      text-align:center;
+      color:var(--muted);
+      background:white;
+      border-radius:12px;
+      border:1px dashed var(--line);
+    }
+
+    #notice {
+      position:fixed;
+      top:90px;
+      right:20px;
+      z-index:1000;
+      max-width:360px;
+      padding:14px 18px;
+      border-radius:10px;
+      background:#e9f8ef;
+      color:var(--green);
+      font-size:13px;
+      font-weight:700;
+      box-shadow:var(--shadow);
+    }
+
+    #notice.error {
+      background:#fff0f0;
+      color:var(--red);
+    }
+
+    #notice.warning {
+      background:#fff7e4;
+      color:#805600;
+    }
+
+    /* AUTH */
+
+    .auth-wrapper {
+      max-width:460px;
+      margin:20px auto 30px;
+    }
+
+    .auth-card {
+      padding:30px;
+      text-align:center;
+    }
+
+    .auth-card h2 {
+      color:var(--blue);
+      margin-bottom:8px;
+      font-family:Poppins,sans-serif;
+    }
+
+    .auth-card p {
+      color:var(--muted);
+      font-size:13px;
+      margin-bottom:20px;
+    }
+
+    .auth-card button {
+      width:100%;
+      margin-top:9px;
+    }
+
+    .auth-actions {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:9px;
+    }
+
+    #accountStatus {
+      font-size:12px;
+      color:var(--muted);
+      margin-top:15px;
+    }
+
+    /* HERO */
+
+    .hero {
+      background:linear-gradient(120deg,#102e68,#2463c7);
+      color:white;
+      padding:36px;
+      border-radius:18px;
+      margin-bottom:25px;
+    }
+
+    .hero h2 {
+      font-family:Poppins,sans-serif;
+      font-size:30px;
+      margin-bottom:10px;
+    }
+
+    .hero p {
+      max-width:650px;
+      opacity:.9;
+      line-height:1.7;
+      font-size:14px;
+    }
+
+    .hero .btn {
+      margin-top:20px;
+    }
+
+    /* SERIES */
+
+    .series-grid {
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:18px;
+    }
+
+    .series-card,.paper-card {
+      background:white;
+      border:1px solid var(--line);
+      border-radius:15px;
+      overflow:hidden;
+      box-shadow:var(--shadow);
+    }
+
+    .series-card-body {
+      padding:20px;
+    }
+
+    .series-card h3,.paper-card h3 {
+      font-size:17px;
+      margin:12px 0 9px;
+      line-height:1.4;
+    }
+
+    .series-card p,.paper-card p {
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.7;
+      margin-bottom:10px;
+    }
+
+    .series-meta {
+      display:flex;
+      gap:7px;
+      flex-wrap:wrap;
+      margin:14px 0;
+    }
+
+    .series-meta span {
+      background:#f0f4fb;
+      border-radius:6px;
+      padding:6px 9px;
+      color:var(--muted);
+      font-size:11px;
+    }
+
+    .series-card h2 {
+      color:var(--blue);
+      margin:15px 0;
+      font-size:23px;
+    }
+
+    .series-card button,.paper-card button {
+      width:100%;
+    }
+
+    /* PAPERS */
+
+    #paperPanel {
+      margin-top:25px;
+    }
+
+    #paperGrid {
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:15px;
+      margin-top:15px;
+    }
+
+    .paper-card {
+      padding:18px;
+    }
+
+    .paper-card button {
+      margin-top:10px;
+    }
+
+    /* PROFILE */
+
+    .profile-header {
+      display:flex;
+      gap:18px;
+      align-items:center;
+      margin-bottom:25px;
+    }
+
+    #profileAvatar {
+      height:75px;
+      width:75px;
+      border-radius:50%;
+      object-fit:cover;
+      border:3px solid var(--line);
+    }
+
+    .profile-header h3 {
+      font-size:20px;
+    }
+
+    .profile-header p {
+      color:var(--muted);
+      font-size:13px;
+      margin-top:5px;
+    }
+
+    .stats-grid {
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:14px;
+      margin-bottom:20px;
+    }
+
+    .stat-card {
+      background:white;
+      padding:20px;
+      border:1px solid var(--line);
+      border-radius:13px;
+    }
+
+    .stat-card small {
+      color:var(--muted);
+      font-size:11px;
+    }
+
+    .stat-card h3 {
+      color:var(--blue);
+      margin-top:8px;
+      font-size:23px;
+    }
+
+    .history-row {
+      display:grid;
+      grid-template-columns:1.5fr 1fr 1fr auto;
+      gap:12px;
+      align-items:center;
+      border-bottom:1px solid var(--line);
+      padding:14px 0;
+      font-size:12px;
+    }
+
+    /* ADMIN */
+
+    .admin-banner {
+      background:linear-gradient(120deg,#102e68,#2463c7);
+      color:white;
+      padding:24px;
+      border-radius:15px;
+      margin-bottom:23px;
+    }
+
+    .admin-banner h2 {
+      font-family:Poppins,sans-serif;
+      margin-bottom:5px;
+    }
+
+    .admin-banner p {
+      font-size:13px;
+      opacity:.85;
+    }
+
+    .admin-grid {
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:14px;
+      margin-bottom:25px;
+    }
+
+    .admin-stat {
+      background:white;
+      border:1px solid var(--line);
+      padding:20px;
+      border-radius:13px;
+    }
+
+    .admin-stat small {
+      color:var(--muted);
+      font-weight:600;
+    }
+
+    .admin-stat h3 {
+      color:var(--blue);
+      font-size:25px;
+      margin-top:8px;
+    }
+
+    .chart-grid {
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:18px;
+      margin-bottom:25px;
+    }
+
+    .chart-card {
+      background:white;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:20px;
+      min-width:0;
+    }
+
+    .chart-card h3 {
+      font-size:14px;
+      margin-bottom:15px;
+    }
+
+    .chart-area {
+      height:240px;
+      position:relative;
+    }
+
+    .admin-section {
+      margin-bottom:25px;
+    }
+
+    .admin-list-row {
+      background:white;
+      border:1px solid var(--line);
+      padding:17px;
+      border-radius:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:15px;
+      margin-bottom:10px;
+      flex-wrap:wrap;
+    }
+
+    .admin-list-row strong {
+      display:block;
+      font-size:13px;
+    }
+
+    .admin-list-row small {
+      display:block;
+      color:var(--muted);
+      margin-top:5px;
+      font-size:11px;
+    }
+
+    .admin-actions {
+      display:flex;
+      gap:7px;
+      flex-wrap:wrap;
+    }
+
+    .admin-actions button {
+      border:1px solid var(--line);
+      padding:8px 10px;
+      border-radius:7px;
+      background:#f4f7fc;
+      color:var(--blue);
+      font-size:11px;
+      font-weight:700;
+    }
+
+    /* QUESTION EDITOR */
+
+    .question-editor {
+      background:#f7f9fd;
+      border:1px solid var(--line);
+      padding:18px;
+      border-radius:12px;
+      margin-bottom:15px;
+    }
+
+    .question-editor-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:15px;
+    }
+
+    .question-editor-head strong {
+      color:var(--blue);
+      font-size:14px;
+    }
+
+    .remove-question {
+      background:#fff0f0;
+      color:var(--red);
+      border:0;
+      border-radius:7px;
+      padding:7px 10px;
+      font-size:11px;
+      font-weight:700;
+    }
+
+    .option-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+      margin:13px 0;
+    }
+
+    .question-editor label {
+      margin-top:10px;
+    }
+
+    /* PDF UPLOAD */
+
+    .upload-box {
+      border:2px dashed #b8c8e2;
+      border-radius:12px;
+      padding:22px;
+      background:#f7f9fd;
+      text-align:center;
+    }
+
+    .upload-box p {
+      color:var(--muted);
+      font-size:12px;
+      margin-bottom:12px;
+    }
+
+    .progress-track {
+      width:100%;
+      height:9px;
+      background:#e4eaf4;
+      border-radius:20px;
+      overflow:hidden;
+      margin-top:10px;
+    }
+
+    #pdfProgressBar {
+      height:100%;
+      width:0%;
+      background:var(--blue2);
+      transition:width .3s;
+    }
+
+    #pdfUploadStatus {
+      font-size:12px;
+      color:var(--muted);
+      margin-top:9px;
+    }
+
+    /* TEST */
+
+    .test-header {
+      background:var(--blue);
+      color:white;
+      padding:22px;
+      border-radius:14px;
+      display:flex;
+      justify-content:space-between;
+      gap:15px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-bottom:20px;
+    }
+
+    .test-header h2 {
+      font-size:20px;
+      margin-bottom:6px;
+    }
+
+    .test-header p {
+      font-size:12px;
+      opacity:.85;
+    }
+
+    #testTimer {
+      font-size:25px;
+      font-weight:800;
+      background:white;
+      color:var(--blue);
+      padding:10px 17px;
+      border-radius:9px;
+    }
+
+    .test-instructions {
+      background:#fff7e4;
+      border:1px solid #f2dda6;
+      color:#795600;
+      padding:15px;
+      border-radius:10px;
+      font-size:13px;
+      margin-bottom:18px;
+    }
+
+    .test-question {
+      background:white;
+      border:1px solid var(--line);
+      padding:22px;
+      border-radius:13px;
+      margin-bottom:14px;
+    }
+
+    .test-question h3 {
+      font-size:15px;
+      line-height:1.7;
+      margin-bottom:16px;
+    }
+
+    .test-option {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:12px;
+      background:#f7f9fd;
+      border-radius:8px;
+      margin:8px 0;
+      cursor:pointer;
+      font-weight:500;
+    }
+
+    .test-option input {
+      width:auto;
+    }
+
+    .test-option:hover {
+      background:#eaf1ff;
+    }
+
+    .test-result-box {
+      background:#e9f8ef;
+      border:1px solid #b8e3c7;
+      padding:25px;
+      border-radius:13px;
+      margin-top:20px;
+    }
+
+    .test-result-box h3 {
+      color:var(--green);
+      margin-bottom:10px;
+    }
+
+    .test-result-box p {
+      margin-bottom:10px;
+      font-size:13px;
+    }
+
+    footer {
+      background:#102e68;
+      color:white;
+      padding:28px 0;
+      text-align:center;
+      margin-top:30px;
+    }
+
+    footer p {
+      font-size:12px;
+      opacity:.8;
+      line-height:1.8;
+    }
+
+    @media(max-width:900px) {
+      .series-grid,#paperGrid {
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+
+      .admin-grid,.stats-grid {
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+    }
+
+    @media(max-width:600px) {
+      .header-inner {
+        padding:12px 0;
+      }
+
+      nav {
+        width:100%;
+        overflow-x:auto;
+        flex-wrap:nowrap;
+      }
+
+      nav button {
+        white-space:nowrap;
+      }
+
+      .hero {
+        padding:25px 20px;
+      }
+
+      .hero h2 {
+        font-size:23px;
+      }
+
+      .series-grid,#paperGrid,.chart-grid,.form-grid {
+        grid-template-columns:1fr;
+      }
+
+      .admin-grid,.stats-grid {
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+
+      .history-row {
+        grid-template-columns:1fr 1fr;
+      }
+
+      .option-grid {
+        grid-template-columns:1fr;
+      }
+
+      .auth-card {
+        padding:22px;
+      }
+
+      .page-title h2 {
+        font-size:21px;
+      }
+
+      .admin-list-row {
+        align-items:flex-start;
+      }
+    }
+  </style>
 </head>
 
 <body>
-<header>
-  <div class="wrap">
-    <div class="top">
-      <div>
-        <div class="brand">BIHAR ACADEMIC BATTLE</div>
-        <div class="sub">Test Series Store · Learn • Practice • Achieve</div>
+
+  <div id="notice" class="hidden" role="status" aria-live="polite"></div>
+
+  <!-- HEADER -->
+  <header>
+    <div class="container header-inner">
+
+      <div class="brand">
+        <div class="brand-logo">BA</div>
+        <div>
+          <h1>BIHAR ACADEMIC BATTLE</h1>
+          <small>ONLINE TEST SERIES PLATFORM</small>
+        </div>
       </div>
-      <div id="accountStatus" class="sub">Checking login…</div>
+
+      <nav>
+        <button data-view="store" class="active">Store</button>
+        <button data-view="mine">My Series</button>
+        <button data-view="profile">Profile</button>
+        <button id="adminNav" data-view="admin" class="hidden">Admin</button>
+        <button id="logoutBtn" class="logout-btn hidden">Logout</button>
+      </nav>
+
     </div>
-    <nav>
-      <button class="navbtn active" data-view="store">Test Series Store</button>
-      <button class="navbtn" data-view="mine">My Test Series</button>
-      <button id="adminNav" class="navbtn hidden" data-view="admin">Admin Management</button>
-    </nav>
-  </div>
-</header>
+  </header>
 
-<main>
-  <div id="notice" role="status" aria-live="polite"></div>
+  <main class="container">
 
-  <!-- AUTH -->
-  <section id="authPanel" class="panel">
-    <h2 style="margin-top:0">Sign in to buy a test series</h2>
-    <p class="muted">Use your existing Bihar Academic Battle Firebase email/password account.</p>
-    <div class="authbox">
-      <input id="email" type="email" placeholder="Email address" autocomplete="email">
-      <input id="password" type="password" placeholder="Password" autocomplete="current-password">
-      <button id="loginBtn" class="btn">Sign in</button>
-      <button id="signupBtn" class="btn secondary">Create account</button>
-      <button id="resetBtn" class="btn secondary">Reset password</button>
-    </div>
-  </section>
+    <!-- AUTH -->
+    <section id="authPanel" class="auth-wrapper">
+      <div class="card auth-card">
 
-  <!-- STORE -->
-  <section id="storeView">
-    <div class="hero">
-      <div>
-        <h1>Choose your test series</h1>
-        <div class="muted">Buy once, then access your purchased series from My Test Series.</div>
+        <h2>Welcome Back!</h2>
+        <p>Login करें और अपनी तैयारी शुरू करें।</p>
+
+        <div class="form-group">
+          <input type="email" id="email" placeholder="Enter Email Address" autocomplete="email">
+        </div>
+
+        <div class="form-group">
+          <input type="password" id="password" placeholder="Enter Password" autocomplete="current-password">
+        </div>
+
+        <div class="auth-actions">
+          <button class="btn" id="loginBtn">Login</button>
+          <button class="btn btn-secondary" id="signupBtn">Create Account</button>
+        </div>
+
+        <button class="btn btn-gold" id="resetBtn">Forgot Password?</button>
+
+        <div id="accountStatus">Not signed in</div>
       </div>
-      <div class="actions">
-        <button class="btn secondary" id="refreshStore">Refresh catalogue</button>
+    </section>
+
+    <!-- STORE -->
+    <section id="storeView">
+
+      <div class="hero">
+        <h2>Prepare. Practice. Perform.</h2>
+        <p>
+          बिहार की प्रतियोगी परीक्षाओं की तैयारी के लिए
+          Online Test Series, MCQ Practice और PDF Study Material
+          एक ही प्लेटफॉर्म पर।
+        </p>
+        <button class="btn btn-gold" type="button"
+          onclick="document.getElementById('seriesGrid').scrollIntoView({behavior:'smooth'})">
+          Explore Test Series
+        </button>
       </div>
-    </div>
-    <div class="toolbar">
-      <input id="search" placeholder="Search by class, subject or series…">
-      <select id="classFilter">
-        <option value="">All classes</option>
-        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
-      </select>
-    </div>
-    <div id="seriesGrid" class="grid"><div class="empty">Loading test series…</div></div>
-  </section>
 
-  <!-- MY TEST SERIES -->
-  <section id="mineView" class="section hidden">
-    <div class="sectionhead">
-      <h2>My Test Series</h2>
-      <button id="refreshMine" class="btn secondary">Refresh purchases</button>
-    </div>
-    <p class="muted">Only purchases verified by the server appear here.</p>
-
-    <div id="mineGrid" class="grid">
-      <div class="empty">Sign in to view your purchases.</div>
-    </div>
-
-    <!-- PAPER LIST (User side) -->
-    <div id="paperPanel" class="panel hidden" style="margin-top:24px">
-      <div class="sectionhead">
-        <h2 id="paperHeading">Published Papers</h2>
-        <button id="backToMine" class="btn secondary">← Back to My Series</button>
+      <div class="page-title">
+        <h2>Available Test Series</h2>
+        <p>अपनी परीक्षा के अनुसार Test Series चुनें।</p>
       </div>
-      <div id="paperGrid" class="grid"></div>
-    </div>
-  </section>
 
-  <!-- ADMIN -->
-  <section id="adminView" class="section hidden">
-    <div class="sectionhead">
-      <h2>Admin management</h2>
-      <button id="loadAdmin" class="btn secondary">Refresh admin data</button>
-    </div>
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <input id="search" type="search" placeholder="Search Test Series..." style="min-width:220px">
 
-    <!-- SERIES FORM -->
-    <div class="panel" style="margin-top:0">
-      <h3 id="formHeading">Add test series</h3>
-      <form id="seriesForm">
-        <input type="hidden" id="seriesId">
-        <div class="formgrid">
-          <div class="field">
-            <label for="sTitle">Series title</label>
-            <input id="sTitle" required maxlength="120" placeholder="Bihar GK Mega Test Series">
-          </div>
-          <div class="field">
-            <label for="sSubject">Subject</label>
-            <input id="sSubject" required placeholder="Bihar GK">
-          </div>
-          <div class="field">
-            <label for="sClass">Class</label>
-            <select id="sClass" required>
-              <option value="">Choose class</option>
-              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
-              <option>All Classes</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="sPrice">Price (₹)</label>
-            <input id="sPrice" type="number" min="1" max="50000" step="1" required placeholder="199">
-          </div>
-          <div class="field">
-            <label for="sCount">Number of tests</label>
-            <input id="sCount" type="number" min="1" max="1000" step="1" required placeholder="10">
-          </div>
-          <div class="field">
-            <label for="sActive">Visibility</label>
-            <select id="sActive">
-              <option value="true">Published / for sale</option>
-              <option value="false">Draft / hidden</option>
-            </select>
-          </div>
-          <div class="field full">
-            <label for="sDesc">Description</label>
-            <textarea id="sDesc" maxlength="1000" placeholder="What is included in this series?"></textarea>
+          <select id="classFilter" style="min-width:150px">
+            <option value="">All Classes</option>
+            <option value="9">Class 9</option>
+            <option value="10">Class 10</option>
+            <option value="11">Class 11</option>
+            <option value="12">Class 12</option>
+            <option value="Graduation">Graduation</option>
+            <option value="Competitive">Competitive</option>
+          </select>
+        </div>
+
+        <button class="btn btn-secondary" id="refreshStore">Refresh Store</button>
+      </div>
+
+      <div id="seriesGrid" class="series-grid">
+        <p class="empty-state">Loading Test Series...</p>
+      </div>
+
+    </section>
+
+    <!-- MY SERIES -->
+    <section id="mineView" class="hidden">
+
+      <div class="page-title">
+        <h2>My Purchased Series</h2>
+        <p>आपके खरीदे गए सभी Test Series यहाँ दिखाई देंगे।</p>
+      </div>
+
+      <div class="toolbar">
+        <span>My Learning Dashboard</span>
+        <button class="btn btn-secondary" id="refreshMine">Refresh</button>
+      </div>
+
+      <div id="mineGrid" class="series-grid">
+        <p class="empty-state">Loading your series...</p>
+      </div>
+
+      <div id="paperPanel" class="card hidden">
+
+        <div class="toolbar">
+          <h2 id="paperHeading">Test Papers</h2>
+          <button class="btn btn-secondary" id="backToMine">Back to Series</button>
+        </div>
+
+        <div id="paperGrid"></div>
+      </div>
+
+    </section>
+
+    <!-- PROFILE -->
+    <section id="profileView" class="hidden">
+
+      <div class="page-title">
+        <h2>My Profile</h2>
+        <p>अपनी Account Information और Payment History देखें।</p>
+      </div>
+
+      <div class="card section">
+
+        <div class="profile-header">
+          <img id="profileAvatar" class="hidden" alt="Profile Photo">
+
+          <div>
+            <h3 id="profileDisplayName">Student</h3>
+            <p id="profileEmail"></p>
+            <span id="profileVerification" class="status-pill"></span>
           </div>
         </div>
-        <div class="actions" style="margin-top:14px">
-          <button class="btn" type="submit">Save series</button>
-          <button class="btn secondary" type="button" id="clearForm">Clear form</button>
+
+        <div class="stats-grid">
+
+          <div class="stat-card">
+            <small>Total Purchases</small>
+            <h3 id="profilePurchaseCount">0</h3>
+          </div>
+
+          <div class="stat-card">
+            <small>Total Paid</small>
+            <h3 id="profileTotalPaid">₹0</h3>
+          </div>
+
+          <div class="stat-card">
+            <small>Email Status</small>
+            <h3 id="profileEmailStatus">—</h3>
+          </div>
+
+          <div class="stat-card">
+            <small>Account Status</small>
+            <h3 id="profileAccountStatus">Active</h3>
+          </div>
+
         </div>
-      </form>
-    </div>
 
-    <!-- PDF PAPER FORM -->
-    <div class="panel" id="pdfPaperPanel">
-      <h3 id="pdfFormHeading">Upload PDF Question Paper</h3>
-      <p class="muted">Upload a PDF paper and link it to a test series.</p>
+        <form id="profileForm">
 
-      <form id="pdfPaperForm">
-        <input type="hidden" id="pdfPaperId">
-        <div class="formgrid">
-          <div class="field">
-            <label for="pdfPaperTitle">Paper title</label>
-            <input id="pdfPaperTitle" required maxlength="150" placeholder="Class 8 Mathematics Question Paper">
-          </div>
-          <div class="field">
-            <label for="pdfSeriesId">Link to Series</label>
-            <select id="pdfSeriesId">
-              <option value="">— Select Series (recommended) —</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="pdfPaperClass">Class</label>
-            <select id="pdfPaperClass" required>
-              <option value="">Choose class</option>
-              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="pdfPaperSubject">Subject</label>
-            <select id="pdfPaperSubject" required>
-              <option value="">Choose subject</option>
-              <option>Bihar GK</option><option>Mathematics</option><option>Science</option>
-              <option>Computer</option><option>English</option><option>Hindi</option>
-              <option>Social Science</option><option>General Knowledge</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="pdfPaperDuration">Duration (minutes)</label>
-            <input id="pdfPaperDuration" type="number" min="1" max="300" value="60" required>
-          </div>
-          <div class="field">
-            <label for="pdfPaperStatus">Publication status</label>
-            <select id="pdfPaperStatus">
-              <option value="draft">Draft / hidden</option>
-              <option value="published">Publish after upload</option>
-            </select>
-          </div>
-          <div class="field full">
-            <label for="pdfPaperInstructions">Instructions (optional)</label>
-            <textarea id="pdfPaperInstructions" maxlength="2000" placeholder="Read all questions carefully."></textarea>
-          </div>
-          <div class="field full">
-            <label for="pdfPaperFile">Question paper PDF</label>
-            <div class="filebox">
-              <input id="pdfPaperFile" type="file" accept=".pdf,application/pdf">
-              <p class="help">PDF only. Max 10 MB. Required for new paper.</p>
-              <div id="selectedPdfName" class="muted" style="margin-top:8px">No PDF selected.</div>
+          <h3 class="section-heading">Edit Profile</h3>
+
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label for="profileNameInput">Display Name</label>
+              <input id="profileNameInput" type="text" placeholder="Your Name">
             </div>
+
+            <div class="form-group">
+              <label for="profileEmailInput">Email Address</label>
+              <input id="profileEmailInput" type="email" readonly>
+            </div>
+
+          </div>
+
+          <div class="form-actions">
+            <button class="btn" id="saveProfileBtn" type="submit">Save Profile</button>
+            <button class="btn btn-secondary" id="refreshProfile" type="button">Refresh Profile</button>
+          </div>
+
+        </form>
+      </div>
+
+      <div class="card">
+
+        <div class="toolbar">
+          <h3 class="section-heading">Payment History</h3>
+          <button class="btn btn-secondary" id="refreshPaymentHistory">Refresh</button>
+        </div>
+
+        <div id="paymentHistory">No payment history found.</div>
+
+      </div>
+
+    </section>
+
+    <!-- ADMIN -->
+    <section id="adminView" class="hidden">
+
+      <div class="admin-banner">
+        <h2>Admin Control Center</h2>
+        <p>BIHAR ACADEMIC BATTLE — Complete Platform Management</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="page-title">
+          <h2>Dashboard Overview</h2>
+          <p>Students, Purchases, Revenue और Test Series Analytics</p>
+        </div>
+
+        <button class="btn" id="loadAdmin">Refresh Dashboard</button>
+      </div>
+
+      <!-- COUNTERS -->
+      <div class="admin-grid">
+
+        <div class="admin-stat">
+          <small>Total Students</small>
+          <h3 id="dashStudents">0</h3>
+        </div>
+
+        <div class="admin-stat">
+          <small>Total Purchases</small>
+          <h3 id="dashPurchases">0</h3>
+        </div>
+
+        <div class="admin-stat">
+          <small>Total Revenue</small>
+          <h3 id="dashRevenue">₹0</h3>
+        </div>
+
+        <div class="admin-stat">
+          <small>Total Test Series</small>
+          <h3 id="dashSeries">0</h3>
+        </div>
+
+      </div>
+
+      <!-- CHARTS -->
+      <div class="chart-grid">
+
+        <div class="chart-card">
+          <h3>Revenue Analytics</h3>
+          <div class="chart-area">
+            <canvas id="revenueChart"></canvas>
           </div>
         </div>
 
-        <div id="pdfProgress" class="hidden">
-          <div id="pdfProgressBar"></div>
+        <div class="chart-card">
+          <h3>Monthly Purchases</h3>
+          <div class="chart-area">
+            <canvas id="purchaseChart"></canvas>
+          </div>
         </div>
-        <div id="pdfUploadStatus" class="help" style="margin-top:8px"></div>
 
-        <div class="actions" style="margin-top:16px">
-          <button class="btn" type="submit" id="savePdfPaperBtn">Save PDF Paper</button>
-          <button class="btn secondary" type="button" id="clearPdfPaperBtn">Clear PDF Form</button>
+        <div class="chart-card">
+          <h3>Series Performance</h3>
+          <div class="chart-area">
+            <canvas id="seriesChart"></canvas>
+          </div>
         </div>
-      </form>
-    </div>
 
-    <!-- MCQ PAPER FORM -->
-    <div class="panel" id="questionPaperPanel">
-      <h3 id="paperFormHeading">Add Question Paper (MCQ)</h3>
-      <p class="muted">Create MCQ question papers and link them to a test series.</p>
-      <form id="paperForm">
-        <input type="hidden" id="paperId">
-        <div class="formgrid">
-          <div class="field">
-            <label for="paperTitle">Paper title</label>
-            <input id="paperTitle" required maxlength="150" placeholder="Class 8 Mathematics Test">
+        <div class="chart-card">
+          <h3>Study Content Overview</h3>
+          <div class="chart-area">
+            <canvas id="contentChart"></canvas>
           </div>
-          <div class="field">
-            <label for="paperSeriesId">Link to Series</label>
-            <select id="paperSeriesId">
-              <option value="">— Select Series (recommended) —</option>
-            </select>
+        </div>
+
+      </div>
+
+      <!-- SERIES MANAGEMENT -->
+      <div class="card admin-section">
+
+        <div class="toolbar">
+          <div>
+            <h2 class="section-heading">Test Series Management</h2>
+            <p style="color:var(--muted);font-size:12px">Create, edit and manage test series.</p>
           </div>
-          <div class="field">
-            <label for="paperClass">Class</label>
-            <select id="paperClass" required>
-              <option value="">Choose class</option>
-              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
-            </select>
+        </div>
+
+        <form id="seriesForm">
+
+          <input type="hidden" id="seriesId">
+
+          <h3 id="formHeading" class="section-heading">Add Test Series</h3>
+
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label for="sTitle">Series Title *</label>
+              <input id="sTitle" required placeholder="Example: Bihar Board Test Series">
+            </div>
+
+            <div class="form-group">
+              <label for="sSubject">Subject *</label>
+              <input id="sSubject" required placeholder="Example: Mathematics">
+            </div>
+
+            <div class="form-group">
+              <label for="sClass">Class / Exam *</label>
+              <input id="sClass" required placeholder="Example: Class 10">
+            </div>
+
+            <div class="form-group">
+              <label for="sPrice">Price (₹) *</label>
+              <input id="sPrice" type="number" min="0" step="0.01" required placeholder="199">
+            </div>
+
+            <div class="form-group">
+              <label for="sCount">Number of Tests</label>
+              <input id="sCount" type="number" min="1" value="1">
+            </div>
+
+            <div class="form-group">
+              <label for="sActive">Publication Status</label>
+              <select id="sActive">
+                <option value="true">Published / For Sale</option>
+                <option value="false">Draft / Hidden</option>
+              </select>
+            </div>
+
           </div>
-          <div class="field">
-            <label for="paperSubject">Subject</label>
-            <select id="paperSubject" required>
-              <option value="">Choose subject</option>
-              <option>Bihar GK</option><option>Mathematics</option><option>Science</option>
-              <option>Computer</option><option>English</option><option>Hindi</option>
-              <option>Social Science</option><option>General Knowledge</option>
-            </select>
+
+          <div class="form-group">
+            <label for="sDesc">Description</label>
+            <textarea id="sDesc" placeholder="Describe your test series..."></textarea>
           </div>
-          <div class="field">
-            <label for="paperDuration">Duration (minutes)</label>
-            <input id="paperDuration" type="number" min="1" max="300" value="60" required>
+
+          <div class="form-actions">
+            <button type="submit" class="btn">Save Test Series</button>
+            <button type="button" class="btn btn-secondary" id="clearForm">Clear Form</button>
           </div>
-          <div class="field">
-            <label for="paperMarks">Marks per question</label>
-            <input id="paperMarks" type="number" min="1" max="100" value="1" required>
+
+        </form>
+
+        <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+
+        <div class="toolbar">
+          <h3 class="section-heading">All Test Series</h3>
+        </div>
+
+        <div id="adminSeries">
+          <p class="empty-state">Loading series...</p>
+        </div>
+
+      </div>
+
+      <!-- PDF MANAGEMENT -->
+      <div class="card admin-section">
+
+        <h2 class="section-heading">PDF / Study Material Upload</h2>
+
+        <p style="color:var(--muted);font-size:12px;margin-bottom:18px">
+          PDF को किसी Test Series से जोड़ें। Published PDF केवल authorized students को उपलब्ध होगी।
+        </p>
+
+        <form id="pdfPaperForm">
+
+          <input type="hidden" id="pdfPaperId">
+
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label for="pdfPaperTitle">Paper Title *</label>
+              <input id="pdfPaperTitle" required placeholder="Example: Mathematics Model Paper 1">
+            </div>
+
+            <div class="form-group">
+              <label for="pdfSeriesId">Select Test Series *</label>
+              <select id="pdfSeriesId" required>
+                <option value="">Select Test Series</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="pdfPaperClass">Class *</label>
+              <input id="pdfPaperClass" required placeholder="Class 10">
+            </div>
+
+            <div class="form-group">
+              <label for="pdfPaperSubject">Subject *</label>
+              <input id="pdfPaperSubject" required placeholder="Mathematics">
+            </div>
+
+            <div class="form-group">
+              <label for="pdfPaperDuration">Duration (Minutes)</label>
+              <input id="pdfPaperDuration" type="number" min="1" value="60">
+            </div>
+
+            <div class="form-group">
+              <label for="pdfPaperStatus">Publication Status</label>
+              <select id="pdfPaperStatus">
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+            </div>
+
           </div>
-          <div class="field">
-            <label for="paperStatus">Publication status</label>
-            <select id="paperStatus">
-              <option value="draft">Draft / hidden</option>
-              <option value="published">Published</option>
-            </select>
+
+          <div class="form-group">
+            <label for="pdfPaperInstructions">Instructions</label>
+            <textarea id="pdfPaperInstructions" placeholder="PDF paper instructions..."></textarea>
           </div>
-          <div class="field full">
+
+          <div class="upload-box">
+
+            <p><strong>Upload PDF File</strong></p>
+            <p>PDF only · Maximum 10 MB</p>
+
+            <input
+              id="pdfPaperFile"
+              type="file"
+              accept="application/pdf,.pdf"
+              required
+            >
+
+            <p id="selectedPdfName">No file selected</p>
+
+          </div>
+
+          <div style="margin-top:15px">
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span>Upload Progress</span>
+              <span id="pdfProgress">0%</span>
+            </div>
+
+            <div class="progress-track">
+              <div id="pdfProgressBar"></div>
+            </div>
+
+            <p id="pdfUploadStatus"></p>
+          </div>
+
+          <div class="form-actions" style="margin-top:18px">
+            <button type="submit" class="btn" id="savePdfPaperBtn">Upload PDF Paper</button>
+            <button type="button" class="btn btn-secondary" id="clearPdfPaperBtn">Clear Form</button>
+          </div>
+
+        </form>
+
+      </div>
+
+      <!-- MCQ MANAGEMENT -->
+      <div class="card admin-section">
+
+        <h2 class="section-heading">MCQ Test Paper Management</h2>
+
+        <p style="color:var(--muted);font-size:12px;margin-bottom:18px">
+          MCQ questions बनाएं, सही उत्तर चुनें और Paper publish करें।
+        </p>
+
+        <form id="paperForm">
+
+          <input type="hidden" id="paperId">
+
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label for="paperTitle">Paper Title *</label>
+              <input id="paperTitle" required placeholder="Example: Science Test 1">
+            </div>
+
+            <div class="form-group">
+              <label for="paperSeriesId">Test Series *</label>
+              <select id="paperSeriesId" required>
+                <option value="">Select Test Series</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="paperClass">Class *</label>
+              <input id="paperClass" required placeholder="Class 10">
+            </div>
+
+            <div class="form-group">
+              <label for="paperSubject">Subject *</label>
+              <input id="paperSubject" required placeholder="Science">
+            </div>
+
+            <div class="form-group">
+              <label for="paperDuration">Duration (Minutes)</label>
+              <input id="paperDuration" type="number" min="1" value="60">
+            </div>
+
+            <div class="form-group">
+              <label for="paperMarks">Marks Per Question</label>
+              <input id="paperMarks" type="number" min="1" value="1">
+            </div>
+
+            <div class="form-group">
+              <label for="paperStatus">Status</label>
+              <select id="paperStatus">
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+            </div>
+
+          </div>
+
+          <div class="form-group">
             <label for="paperInstructions">Instructions</label>
-            <textarea id="paperInstructions" maxlength="2000" placeholder="Read each question carefully before answering."></textarea>
+            <textarea id="paperInstructions" placeholder="Test instructions..."></textarea>
           </div>
-        </div>
 
-        <div class="section" style="margin-top:22px">
-          <div class="sectionhead">
-            <h2>Questions</h2>
-            <button class="btn secondary" type="button" id="addPaperQuestion">+ Add question</button>
+          <div class="toolbar">
+            <h3 class="section-heading">Questions</h3>
+            <button type="button" class="btn btn-secondary" id="addPaperQuestion">+ Add Question</button>
           </div>
-          <div id="paperQuestions"><div class="empty">Click “Add question” to begin.</div></div>
+
+          <div id="paperQuestions"></div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn" id="savePaperBtn">Save MCQ Paper</button>
+            <button type="button" class="btn btn-secondary" id="clearPaperForm">Clear MCQ Form</button>
+          </div>
+
+        </form>
+
+      </div>
+
+      <!-- ALL PAPERS -->
+      <div class="card admin-section">
+
+        <div class="toolbar">
+          <h2 class="section-heading">All Test Papers</h2>
+          <button class="btn btn-secondary" id="refreshPapers">Refresh Papers</button>
         </div>
 
-        <div class="actions" style="margin-top:18px">
-          <button class="btn" type="submit" id="savePaperBtn">Save question paper</button>
-          <button class="btn secondary" type="button" id="clearPaperForm">Clear paper form</button>
+        <div id="adminPapers">
+          <p class="empty-state">Loading papers...</p>
         </div>
-      </form>
-    </div>
 
-    <!-- SAVED PAPERS -->
-    <div class="panel">
-      <div class="sectionhead">
-        <h2>Saved Question Papers</h2>
-        <button class="btn secondary" type="button" id="refreshPapers">Refresh papers</button>
       </div>
-      <div id="adminPapers" class="tablewrap">
-        <p class="muted">Loading saved papers requires a signed-in administrator.</p>
+
+      <!-- PURCHASES -->
+      <div class="card admin-section">
+
+        <h2 class="section-heading">All Purchases</h2>
+
+        <div id="adminPurchases">
+          <p class="empty-state">Loading purchases...</p>
+        </div>
+
       </div>
+
+      <!-- STUDENTS -->
+      <div class="card admin-section">
+
+        <div class="toolbar">
+          <div>
+            <h2 class="section-heading">Registered Students</h2>
+            <p style="font-size:12px;color:var(--muted)">
+              Total Students:
+              <strong id="adminStudentCount">0</strong>
+            </p>
+          </div>
+
+          <button class="btn btn-secondary" id="refreshAdminUsers">Refresh Students</button>
+        </div>
+
+        <div id="adminUsers">
+          <p class="empty-state">Loading students...</p>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ONLINE TEST -->
+    <section id="testView" class="hidden">
+
+      <div class="test-header">
+
+        <div>
+          <h2 id="testTitle">Online Test</h2>
+
+          <p>
+            Questions:
+            <strong id="testQuestionCount">0</strong>
+            &nbsp; | &nbsp;
+            Duration:
+            <strong id="testDuration">60 Minutes</strong>
+          </p>
+        </div>
+
+        <div id="testTimer">60:00</div>
+
+      </div>
+
+      <div class="toolbar">
+        <span>Online Examination</span>
+        <button class="btn btn-danger" id="exitTestBtn">Exit Test</button>
+      </div>
+
+      <div class="test-instructions">
+        <strong>Instructions:</strong>
+        <p id="testInstructions">सभी प्रश्नों का उत्तर दें।</p>
+      </div>
+
+      <div id="testQuestions"></div>
+
+      <div class="card" style="margin-top:20px">
+        <div class="form-actions">
+          <button class="btn" id="submitTestBtn">Submit Test</button>
+        </div>
+      </div>
+
+      <div id="testResult" class="test-result-box hidden">
+
+        <h3>Test Submitted Successfully!</h3>
+
+        <p id="testResultMessage"></p>
+
+        <p id="testResultDetails"></p>
+
+        <button class="btn" id="testResultBack">
+          Back to My Series
+        </button>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="container">
+      <p><strong>BIHAR ACADEMIC BATTLE</strong></p>
+      <p>Online Test Series | MCQ Practice | PDF Study Material</p>
+      <p>© 2026 Bihar Academic Battle. All Rights Reserved.</p>
     </div>
+  </footer>
 
-    <div class="panel">
-      <h3>Catalogue management</h3>
-      <div id="adminSeries" class="tablewrap"><p class="muted">Admin access required.</p></div>
-    </div>
+  <!-- External Libraries -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <div class="panel">
-      <h3>Verified purchases</h3>
-      <div id="adminPurchases" class="tablewrap"><p class="muted">Load admin data to view purchases.</p></div>
-    </div>
-  </section>
-</main>
+  <!-- Application -->
+  <script type="module" src="./app.js"></script>
 
-<div class="footer">
-  © <span id="year"></span> Bihar Academic Battle · Secure purchases are verified on the server.
-</div>
-
-<script type="module" src="./app.js"></script>
 </body>
 </html>

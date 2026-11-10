@@ -1,1329 +1,3264 @@
+
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+
 import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  signOut
+  signOut,
+  updateProfile
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 
-// ============================================================
-// BIHAR ACADEMIC BATTLE — TEST SERIES STORE
-// File: public/app.js
-// ============================================================
+/* ==========================================
+   BIHAR ACADEMIC BATTLE
+   Complete Frontend JavaScript
+========================================== */
+
+/* 1. FIREBASE CONFIG */
 
 const firebaseConfig = {
   apiKey: "AIzaSyBO6-Qq6Yh6E4ECx9BXGySqzC8J2zdHYzs",
   authDomain: "babbihar-23fcc.firebaseapp.com",
-  databaseURL: "https://babbihar-23fcc-default-rtdb.firebaseio.com",
+  databaseURL: "https://babbihar-23fcc-default-rtdb.firebaseio.com/",
   projectId: "babbihar-23fcc",
   storageBucket: "babbihar-23fcc.firebasestorage.app",
-  messagingSenderId: "310810953638",
-  appId: "1:310810953638:web:cbaafbf43b5cfd2dffb167",
-  measurementId: "G-43J5L0K1MZ"
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_FIREBASE_APP_ID"
 };
+
+const API_BASE = "/api";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
-const $ = id => document.getElementById(id);
+
+/* 2. GLOBAL STATE */
 
 let currentUser = null;
-let catalogue = [];
-let adminSeriesCache = [];
-let allAdminPapers = [];
-let currentSeries = null;
+let idToken = null;
 
-let authResolved = false;
-let resolveAuthReady;
-const authReady = new Promise(resolve => {
-  resolveAuthReady = resolve;
-});
+let currentSeries = [];
+let currentPapers = [];
 
-// ============================================================
-// AUTH TOKEN
-// ============================================================
+let currentPaper = null;
+let currentTestQuestions = [];
 
-window.BAB_GET_ID_TOKEN = async function () {
-  const user =
-    auth.currentUser ||
-    currentUser ||
-    (authResolved ? null : await authReady);
+let testAnswers = {};
+let testTimerInterval = null;
+let testSecondsLeft = 0;
 
-  if (!user) {
-    throw new Error("पहले अपने Firebase account से login करें।");
-  }
-  return user.getIdToken();
+let adminVerified = false;
+
+let adminCharts = {};
+
+let adminData = {
+  purchases: [],
+  series: [],
+  papers: [],
+  users: [],
+  totalStudents: 0
 };
 
-// ============================================================
-// HELPERS
-// ============================================================
+const $ = id => document.getElementById(id);
 
-function escapeHtml(value) {
+/* ==========================================
+   3. COMMON HELPERS
+========================================== */
+
+function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[char]));
-}
-
-function money(paise) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2
-  }).format((Number(paise) || 0) / 100);
-}
-
-function notice(message, type = "error") {
-  const element = $("notice");
-  if (!element) {
-    console[type === "error" ? "error" : "log"](message);
-    alert(message);
-    return;
-  }
-  element.textContent = String(message ?? "");
-  element.className = type;
-  element.style.display = "block";
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function clearNotice() {
-  const element = $("notice");
-  if (!element) return;
-  element.textContent = "";
-  element.style.display = "none";
-  element.className = "";
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
 }
 
 function setText(id, value) {
   const element = $(id);
-  if (element) element.textContent = String(value ?? "");
+
+  if (element) {
+    element.textContent = String(value ?? "");
+  }
 }
 
-function setHidden(id, hidden) {
-  $(id)?.classList.toggle("hidden", Boolean(hidden));
+function formatMoney(paise = 0) {
+  const rupees = Number(paise || 0) / 100;
+
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2
+  }).format(rupees);
 }
 
-function setBusy(button, busy, busyText = "Please wait…") {
-  if (!button) return;
-  if (busy) {
-    if (!button.dataset.originalText) {
-      button.dataset.originalText = button.textContent || "";
-    }
-    button.textContent = busyText;
-    button.disabled = true;
+function formatDate(value) {
+  if (!value) return "—";
+
+  let date;
+
+  if (typeof value === "number") {
+    date = new Date(value);
+  } else if (/^\d+$/.test(String(value))) {
+    const number = Number(value);
+
+    date = new Date(
+      number < 1000000000000
+        ? number * 1000
+        : number
+    );
   } else {
-    button.textContent = button.dataset.originalText || button.textContent || "";
+    date = new Date(value);
+  }
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+}
+
+function showNotice(message, type = "success") {
+  const element = $("notice");
+
+  if (!element) {
+    console.log(message);
+    return;
+  }
+
+  element.textContent = message;
+
+  element.classList.remove(
+    "hidden",
+    "success",
+    "error",
+    "warning"
+  );
+
+  element.classList.add(type);
+
+  clearTimeout(showNotice.timer);
+
+  showNotice.timer = setTimeout(() => {
+    element.classList.add("hidden");
+  }, 4500);
+}
+
+function setButtonLoading(button, loading, label = "Please wait...") {
+  if (!button) return;
+
+  if (loading) {
+    button.dataset.oldText = button.textContent;
+    button.disabled = true;
+    button.textContent = label;
+  } else {
     button.disabled = false;
-    delete button.dataset.originalText;
+
+    if (button.dataset.oldText) {
+      button.textContent = button.dataset.oldText;
+      delete button.dataset.oldText;
+    }
   }
 }
 
-function authError(error) {
-  const messages = {
-    "auth/invalid-email": "सही email address दर्ज करें।",
-    "auth/missing-password": "Password दर्ज करें।",
-    "auth/weak-password": "कम से कम 6 characters का password रखें।",
-    "auth/email-already-in-use": "इस email से account पहले से मौजूद है।",
-    "auth/invalid-credential": "Email या password गलत है।",
-    "auth/user-not-found": "इस email से account नहीं मिला।",
-    "auth/wrong-password": "Password गलत है।",
-    "auth/too-many-requests": "कुछ देर बाद दोबारा कोशिश करें।",
-    "auth/network-request-failed": "Internet connection जाँचें।"
-  };
-  return messages[error?.code] || error?.message || "Authentication में समस्या आई।";
+function jsonBody(data) {
+  return JSON.stringify(data);
 }
 
-// ============================================================
-// API HELPER
-// ============================================================
+/* ==========================================
+   4. API REQUEST HELPER
+========================================== */
 
-async function api(url, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+async function api(endpoint, options = {}) {
+  const headers = new Headers(options.headers || {});
 
-  if (options.body && !isFormData && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+  if (idToken) {
+    headers.set("Authorization", `Bearer ${idToken}`);
   }
 
-  const user = auth.currentUser || currentUser || (authResolved ? null : await authReady);
-  if (user) {
-    headers.Authorization = `Bearer ${await user.getIdToken()}`;
+  const isFormData = options.body instanceof FormData;
+
+  if (options.body && !isFormData) {
+    headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
-    cache: options.cache || "no-store"
+    cache: "no-store"
   });
 
-  const contentType = response.headers.get("content-type") || "";
-  let data;
-  if (contentType.includes("application/json")) {
-    data = await response.json().catch(() => ({}));
-  } else {
-    data = await response.text().catch(() => "");
+  const contentType =
+    response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/pdf")) {
+    if (!response.ok) {
+      throw new Error("PDF could not be loaded.");
+    }
+
+    return response.blob();
+  }
+
+  let result = {};
+
+  try {
+    if (contentType.includes("application/json")) {
+      result = await response.json();
+    } else {
+      result = {
+        error: await response.text()
+      };
+    }
+  } catch {
+    result = {};
   }
 
   if (!response.ok) {
-    const message = typeof data === "object"
-      ? (data.error || data.message || `Request failed (${response.status})`)
-      : (data || `Request failed (${response.status})`);
-    throw new Error(message);
+    throw new Error(
+      result.error || `Request failed (${response.status})`
+    );
   }
-  return data;
+
+  return result;
 }
 
-// ============================================================
-// PRIVATE PDF
-// ============================================================
+/* ==========================================
+   5. AUTH CHECK
+========================================== */
 
-function showPdfError(message) {
-  const box = $("pdf-error");
-  if (box) {
-    box.textContent = String(message);
-    box.hidden = false;
-  } else {
-    notice(message);
-  }
-}
+function requireLogin() {
+  if (!currentUser || !idToken) {
+    showNotice("पहले Login करें।", "error");
 
-window.openQuestionPaperPDF = async function (paperId) {
-  let tab = null;
-  let objectUrl = null;
-  try {
-    const id = String(paperId || "");
-    if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) {
-      throw new Error("Question paper ID सही नहीं है।");
-    }
-
-    tab = window.open("about:blank", "_blank");
-    const token = await window.BAB_GET_ID_TOKEN();
-
-    const response = await fetch(`/api/papers/${encodeURIComponent(id)}/pdf`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store"
+    $("authPanel")?.scrollIntoView({
+      behavior: "smooth"
     });
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `PDF request failed: ${response.status}`);
+    return false;
+  }
+
+  return true;
+}
+
+function requireAdmin() {
+  if (!requireLogin()) {
+    return false;
+  }
+
+  if (!adminVerified) {
+    showNotice(
+      "आपके खाते को Admin access नहीं मिला है।",
+      "error"
+    );
+
+    return false;
+  }
+
+  return true;
+}
+
+/* ==========================================
+   6. PAGE NAVIGATION
+========================================== */
+
+function showView(viewName) {
+  const views = {
+    store: "storeView",
+    mine: "mineView",
+    profile: "profileView",
+    admin: "adminView",
+    test: "testView"
+  };
+
+  Object.entries(views).forEach(([name, id]) => {
+    const element = $(id);
+
+    if (element) {
+      element.classList.toggle(
+        "hidden",
+        name !== viewName
+      );
+    }
+  });
+
+  document.querySelectorAll("[data-view]").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.view === viewName
+    );
+  });
+
+  if (viewName === "store") loadStore();
+  if (viewName === "mine") loadMySeries();
+  if (viewName === "profile") loadProfile();
+  if (viewName === "admin") loadAdmin();
+}
+
+/* ==========================================
+   7. AUTH UI
+========================================== */
+
+function setAuthUI(user) {
+  const authPanel = $("authPanel");
+  const logoutButton = $("logoutBtn");
+
+  if (authPanel) {
+    authPanel.classList.toggle(
+      "hidden",
+      Boolean(user)
+    );
+  }
+
+  if (logoutButton) {
+    logoutButton.classList.toggle(
+      "hidden",
+      !user
+    );
+  }
+
+  setText(
+    "accountStatus",
+    user
+      ? `Signed in: ${user.email || "Student"}`
+      : "Not signed in"
+  );
+
+  $("adminNav")?.classList.toggle(
+    "hidden",
+    !adminVerified
+  );
+}
+
+/* ==========================================
+   8. LOGIN
+========================================== */
+
+async function login() {
+  const email = $("email")?.value.trim();
+  const password = $("password")?.value;
+
+  if (!email || !password) {
+    showNotice(
+      "Email और Password भरें।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    setButtonLoading(
+      $("loginBtn"),
+      true,
+      "Signing in..."
+    );
+
+    await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+    showNotice("Login successful.");
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    setButtonLoading($("loginBtn"), false);
+  }
+}
+
+/* ==========================================
+   9. SIGNUP
+========================================== */
+
+async function signup() {
+  const email = $("email")?.value.trim();
+  const password = $("password")?.value;
+
+  if (!email || !password) {
+    showNotice(
+      "Email और Password भरें।",
+      "error"
+    );
+
+    return;
+  }
+
+  if (password.length < 6) {
+    showNotice(
+      "Password कम से कम 6 characters का होना चाहिए।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    setButtonLoading(
+      $("signupBtn"),
+      true,
+      "Creating account..."
+    );
+
+    await createUserWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+    showNotice("Account successfully created.");
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    setButtonLoading($("signupBtn"), false);
+  }
+}
+
+/* ==========================================
+   10. RESET PASSWORD
+========================================== */
+
+async function resetPassword() {
+  const email = $("email")?.value.trim();
+
+  if (!email) {
+    showNotice(
+      "पहले Email भरें।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    setButtonLoading(
+      $("resetBtn"),
+      true,
+      "Sending..."
+    );
+
+    await sendPasswordResetEmail(
+      auth,
+      email
+    );
+
+    showNotice(
+      "Password reset email भेज दिया गया है।"
+    );
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    setButtonLoading($("resetBtn"), false);
+  }
+}
+
+/* ==========================================
+   11. LOGOUT
+========================================== */
+
+async function logout() {
+  try {
+    stopTestTimer();
+
+    await signOut(auth);
+
+    showNotice("Logout successful.");
+
+    showView("store");
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   12. FIREBASE AUTH STATE
+========================================== */
+
+onAuthStateChanged(auth, async user => {
+  currentUser = user;
+
+  idToken = user
+    ? await user.getIdToken(true)
+    : null;
+
+  adminVerified = false;
+
+  if (user) {
+    try {
+      await api("/admin/series");
+      adminVerified = true;
+    } catch {
+      adminVerified = false;
+    }
+  }
+
+  setAuthUI(user);
+
+  if (user) {
+    await loadStore();
+
+    if (adminVerified) {
+      $("adminNav")?.classList.remove("hidden");
+    }
+  } else {
+    currentSeries = [];
+
+    adminData = {
+      purchases: [],
+      series: [],
+      papers: [],
+      users: [],
+      totalStudents: 0
+    };
+  }
+});
+
+/* ==========================================
+   13. TEST SERIES STORE
+========================================== */
+
+async function loadStore() {
+  try {
+    const result = await api("/series");
+
+    currentSeries = Array.isArray(result.series)
+      ? result.series
+      : [];
+
+    renderStore();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+function renderStore() {
+  const grid = $("seriesGrid");
+
+  if (!grid) return;
+
+  const search = (
+    $("search")?.value || ""
+  ).toLowerCase().trim();
+
+  const classFilter =
+    $("classFilter")?.value || "";
+
+  const filtered = currentSeries.filter(series => {
+    const searchText = [
+      series.title,
+      series.subject,
+      series.className,
+      series.description
+    ].join(" ").toLowerCase();
+
+    const matchesSearch =
+      !search || searchText.includes(search);
+
+    const matchesClass =
+      !classFilter ||
+      String(series.className || "") === classFilter;
+
+    return (
+      series.active !== false &&
+      matchesSearch &&
+      matchesClass
+    );
+  });
+
+  if (!filtered.length) {
+    grid.innerHTML = `
+      <p class="empty-state">
+        अभी कोई Test Series उपलब्ध नहीं है।
+      </p>
+    `;
+
+    return;
+  }
+
+  grid.innerHTML = filtered.map(series => `
+    <article class="series-card">
+      <div class="series-card-body">
+
+        <span class="status-pill">
+          Available
+        </span>
+
+        <h3>
+          ${escapeHTML(series.title)}
+        </h3>
+
+        <p>
+          ${escapeHTML(series.description || "")}
+        </p>
+
+        <div class="series-meta">
+
+          <span>
+            ${escapeHTML(series.className || "")}
+          </span>
+
+          <span>
+            ${escapeHTML(series.subject || "")}
+          </span>
+
+          <span>
+            ${Number(series.testCount || 0)} Tests
+          </span>
+
+        </div>
+
+        <h2>
+          ${formatMoney(series.pricePaise)}
+        </h2>
+
+        <button
+          type="button"
+          data-buy-series="${escapeHTML(series.id)}"
+        >
+          Buy Now
+        </button>
+
+      </div>
+    </article>
+  `).join("");
+
+  grid.querySelectorAll("[data-buy-series]").forEach(button => {
+    button.addEventListener("click", () => {
+      const series = currentSeries.find(
+        item => item.id === button.dataset.buySeries
+      );
+
+      if (series) {
+        buySeries(series);
+      }
+    });
+  });
+}
+
+/* ==========================================
+   14. RAZORPAY PAYMENT
+========================================== */
+
+async function buySeries(series) {
+  if (!requireLogin()) return;
+
+  if (typeof window.Razorpay !== "function") {
+    showNotice(
+      "Razorpay Checkout script HTML में load नहीं है।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    const order = await api("/create-order", {
+      method: "POST",
+      body: jsonBody({
+        seriesId: series.id
+      })
+    });
+
+    const options = {
+      key: order.keyId,
+
+      amount: order.amount,
+
+      currency: order.currency || "INR",
+
+      name:
+        order.name ||
+        "BIHAR ACADEMIC BATTLE",
+
+      description:
+        order.description ||
+        series.title,
+
+      order_id: order.orderId,
+
+      prefill: {
+        name: currentUser.displayName || "",
+        email: currentUser.email || ""
+      },
+
+      theme: {
+        color: "#123b82"
+      },
+
+      handler: async paymentResponse => {
+        try {
+          await api("/verify-payment", {
+            method: "POST",
+            body: jsonBody(paymentResponse)
+          });
+
+          showNotice(
+            "Payment verified! Series unlock हो गई है।"
+          );
+
+          await loadMySeries();
+          await loadMyPurchases();
+
+          showView("mine");
+
+        } catch (error) {
+          showNotice(
+            error.message,
+            "error"
+          );
+        }
+      },
+
+      modal: {
+        ondismiss: () => {
+          showNotice(
+            "Payment window बंद कर दी गई।",
+            "warning"
+          );
+        }
+      }
+    };
+
+    if (
+      !options.key ||
+      !options.order_id ||
+      !options.amount
+    ) {
+      throw new Error(
+        "Razorpay order details missing."
+      );
     }
 
-    const blob = await response.blob();
-    const contentType = response.headers.get("content-type") || blob.type;
-    if (!contentType.includes("application/pdf")) {
-      throw new Error("Server ने PDF नहीं भेजी। Backend API route जाँचें।");
+    const razorpay = new window.Razorpay(options);
+
+    razorpay.open();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   15. MY PURCHASED SERIES
+========================================== */
+
+async function loadMySeries() {
+  if (!currentUser) return;
+
+  try {
+    const result = await api("/my-series");
+
+    const series = Array.isArray(result.series)
+      ? result.series
+      : [];
+
+    renderMySeries(series);
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+function renderMySeries(series) {
+  const grid = $("mineGrid");
+
+  if (!grid) return;
+
+  if (!series.length) {
+    grid.innerHTML = `
+      <p class="empty-state">
+        आपने अभी कोई Test Series नहीं खरीदी है।
+      </p>
+    `;
+
+    return;
+  }
+
+  grid.innerHTML = series.map(item => `
+    <article class="series-card">
+
+      <div class="series-card-body">
+
+        <span class="status-pill">
+          Purchased
+        </span>
+
+        <h3>
+          ${escapeHTML(item.title)}
+        </h3>
+
+        <p>
+          ${escapeHTML(item.className || "")}
+          ·
+          ${escapeHTML(item.subject || "")}
+        </p>
+
+        <p>
+          Purchased:
+          ${formatDate(item.purchase?.purchasedAt)}
+        </p>
+
+        <p>
+          Paid:
+          ${formatMoney(item.purchase?.amountPaise || 0)}
+        </p>
+
+        <button
+          type="button"
+          data-open-series="${escapeHTML(item.id)}"
+        >
+          Open Series
+        </button>
+
+      </div>
+
+    </article>
+  `).join("");
+
+  grid.querySelectorAll("[data-open-series]").forEach(button => {
+    button.addEventListener("click", () => {
+      openSeries(button.dataset.openSeries);
+    });
+  });
+}
+
+/* ==========================================
+   16. OPEN SERIES PAPERS
+========================================== */
+
+async function openSeries(seriesId) {
+  if (!requireLogin()) return;
+
+  try {
+    const result = await api(
+      `/access/${encodeURIComponent(seriesId)}`
+    );
+
+    if (!result.allowed) {
+      throw new Error(
+        result.error || "Series access denied."
+      );
     }
 
-    objectUrl = URL.createObjectURL(blob);
-    if (tab && !tab.closed) {
-      tab.location.href = objectUrl;
+    const series = result.series;
+    const papers = result.papers || [];
+
+    setText(
+      "paperHeading",
+      series?.title || "Test Papers"
+    );
+
+    $("paperPanel")?.classList.remove("hidden");
+
+    const grid = $("paperGrid");
+
+    if (!grid) return;
+
+    if (!papers.length) {
+      grid.innerHTML = `
+        <p class="empty-state">
+          इस Series में अभी कोई Paper प्रकाशित नहीं हुआ है।
+        </p>
+      `;
     } else {
+      grid.innerHTML = papers.map(paper => `
+        <article class="paper-card">
+
+          <h3>
+            ${escapeHTML(paper.title)}
+          </h3>
+
+          <p>
+            ${escapeHTML(paper.subject || "")}
+            ·
+            ${escapeHTML(paper.className || "")}
+          </p>
+
+          <p>
+            ${Number(paper.durationMinutes || 60)}
+            Minutes
+          </p>
+
+          ${
+            paper.type === "pdf"
+              ? `
+                <button
+                  type="button"
+                  data-open-pdf="${escapeHTML(paper.id)}"
+                >
+                  View PDF
+                </button>
+              `
+              : `
+                <button
+                  type="button"
+                  data-start-test="${escapeHTML(paper.id)}"
+                >
+                  Start Test
+                </button>
+              `
+          }
+
+        </article>
+      `).join("");
+
+      grid.querySelectorAll("[data-open-pdf]").forEach(button => {
+        button.addEventListener("click", () => {
+          openStudentPDF(button.dataset.openPdf);
+        });
+      });
+
+      grid.querySelectorAll("[data-start-test]").forEach(button => {
+        button.addEventListener("click", () => {
+          startTest(button.dataset.startTest);
+        });
+      });
+    }
+
+    $("paperPanel")?.scrollIntoView({
+      behavior: "smooth"
+    });
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   17. PRIVATE STUDENT PDF
+========================================== */
+
+async function openStudentPDF(paperId) {
+  if (!requireLogin()) return;
+
+  try {
+    showNotice(
+      "PDF लोड हो रहा है...",
+      "warning"
+    );
+
+    const blob = await api(
+      `/papers/${encodeURIComponent(paperId)}/pdf`
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const win = window.open(
+      url,
+      "_blank",
+      "noopener"
+    );
+
+    if (!win) {
       const link = document.createElement("a");
-      link.href = objectUrl;
-      link.target = "_blank";
-      link.rel = "noopener";
+
+      link.href = url;
+      link.download = `paper-${paperId}.pdf`;
+
       link.click();
     }
 
     setTimeout(() => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    }, 120000);
+      URL.revokeObjectURL(url);
+    }, 60000);
+
+    showNotice("PDF opened.");
+
   } catch (error) {
-    if (tab && !tab.closed) tab.close();
-    showPdfError(`Question paper नहीं खुला: ${error.message}`);
-  }
-};
-
-// ============================================================
-// NAVIGATION
-// ============================================================
-
-function showView(view) {
-  if ((view === "mine" || view === "admin") && !currentUser) {
-    notice("पहले अपने account में sign in करें।");
-    return;
-  }
-
-  setHidden("storeView", view !== "store");
-  setHidden("mineView", view !== "mine");
-  setHidden("adminView", view !== "admin");
-
-  document.querySelectorAll("[data-view]").forEach(button => {
-    button.classList.toggle("active", button.dataset.view === view);
-  });
-
-  if (view === "store") loadCatalogue();
-  if (view === "mine") loadMine();
-  if (view === "admin") loadAdmin();
-}
-
-document.querySelectorAll("[data-view]").forEach(button => {
-  button.addEventListener("click", () => showView(button.dataset.view));
-});
-
-// ============================================================
-// LOGIN / SIGNUP / RESET
-// ============================================================
-
-$("loginBtn")?.addEventListener("click", async event => {
-  clearNotice();
-  const button = event.currentTarget;
-  const email = ($("email")?.value || "").trim();
-  const password = $("password")?.value || "";
-
-  if (!email || !password) return notice("Email और password दोनों दर्ज करें।");
-
-  setBusy(button, true, "Signing in…");
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-    notice("Login successful.", "success");
-  } catch (error) {
-    notice(authError(error));
-  } finally {
-    setBusy(button, false);
-  }
-});
-
-$("signupBtn")?.addEventListener("click", async event => {
-  clearNotice();
-  const button = event.currentTarget;
-  const email = ($("email")?.value || "").trim();
-  const password = $("password")?.value || "";
-
-  if (!email || !password) return notice("Email और password दर्ज करें।");
-  if (password.length < 6) return notice("Password कम से कम 6 characters का होना चाहिए।");
-
-  setBusy(button, true, "Creating account…");
-  try {
-    await createUserWithEmailAndPassword(auth, email, password);
-    notice("Account बन गया है।", "success");
-  } catch (error) {
-    notice(authError(error));
-  } finally {
-    setBusy(button, false);
-  }
-});
-
-$("resetBtn")?.addEventListener("click", async event => {
-  const email = ($("email")?.value || "").trim();
-  if (!email) return notice("पहले अपना email address दर्ज करें।");
-
-  const button = event.currentTarget;
-  setBusy(button, true, "Sending…");
-  try {
-    await sendPasswordResetEmail(auth, email);
-    notice("यदि email registered है, तो reset link भेज दिया गया है।", "success");
-  } catch (error) {
-    notice(authError(error));
-  } finally {
-    setBusy(button, false);
-  }
-});
-
-// ============================================================
-// CATALOGUE
-// ============================================================
-
-async function loadCatalogue() {
-  const host = $("seriesGrid");
-  if (!host) return;
-
-  host.innerHTML = `<div class="empty">Loading test series…</div>`;
-  try {
-    const data = await api("/api/series");
-    catalogue = Array.isArray(data.series) ? data.series : [];
-    renderCatalogue();
-  } catch (error) {
-    host.innerHTML = `<div class="empty">Catalogue लोड नहीं हुआ। Server और Firebase जाँचें।</div>`;
-    notice(error.message);
+    showNotice(error.message, "error");
   }
 }
 
-function seriesCard(series, owned = false) {
-  return `
-    <article class="card">
-      <span class="pill">${escapeHtml(series.className)} · ${escapeHtml(series.subject)}</span>
-      <h3>${escapeHtml(series.title)}</h3>
-      <div class="desc">${escapeHtml(series.description || "Practice with this test series.")}</div>
-      <div class="muted">${Number(series.testCount) || 0} practice tests</div>
-      <div class="price">${money(series.pricePaise)}</div>
-      ${owned
-        ? `<button type="button" class="btn" data-open-series="${escapeHtml(series.id)}">View Papers</button>`
-        : `<button type="button" class="btn gold" data-buy-series="${escapeHtml(series.id)}">Buy now</button>`
+/* ==========================================
+   18. STUDENT PROFILE
+========================================== */
+
+async function loadProfile() {
+  if (!currentUser) return;
+
+  try {
+    const [profile, history] = await Promise.all([
+      api("/profile"),
+      api("/my-purchases")
+    ]);
+
+    setText(
+      "profileDisplayName",
+      profile.displayName || "Student"
+    );
+
+    setText(
+      "profileEmail",
+      profile.email || currentUser.email || ""
+    );
+
+    setText(
+      "profileVerification",
+      profile.emailVerified
+        ? "Verified"
+        : "Not verified"
+    );
+
+    setText(
+      "profilePurchaseCount",
+      profile.purchaseCount || 0
+    );
+
+    setText(
+      "profileTotalPaid",
+      formatMoney(profile.totalPaidPaise || 0)
+    );
+
+    setText(
+      "profileAccountStatus",
+      profile.disabled
+        ? "Disabled"
+        : "Active"
+    );
+
+    if ($("profileNameInput")) {
+      $("profileNameInput").value =
+        profile.displayName || "";
+    }
+
+    if ($("profileEmailInput")) {
+      $("profileEmailInput").value =
+        profile.email || "";
+    }
+
+    const avatar = $("profileAvatar");
+
+    if (avatar) {
+      if (profile.photoURL) {
+        avatar.src = profile.photoURL;
+        avatar.classList.remove("hidden");
+      } else {
+        avatar.classList.add("hidden");
       }
-    </article>
-  `;
-}
-
-function renderCatalogue() {
-  const host = $("seriesGrid");
-  if (!host) return;
-
-  const query = ($("search")?.value || "").trim().toLowerCase();
-  const classFilter = $("classFilter")?.value || "";
-
-  const filtered = catalogue.filter(series => {
-    const matchesClass = !classFilter || series.className === classFilter;
-    const text = [series.title, series.subject, series.className, series.description].join(" ").toLowerCase();
-    return matchesClass && text.includes(query);
-  });
-
-  host.innerHTML = filtered.length
-    ? filtered.map(series => seriesCard(series)).join("")
-    : `<div class="empty">कोई matching test series नहीं मिली।</div>`;
-
-  host.querySelectorAll("[data-buy-series]").forEach(button => {
-    button.addEventListener("click", () => buySeries(button.dataset.buySeries));
-  });
-}
-
-$("search")?.addEventListener("input", renderCatalogue);
-$("classFilter")?.addEventListener("change", renderCatalogue);
-$("refreshStore")?.addEventListener("click", loadCatalogue);
-
-// ============================================================
-// RAZORPAY
-// ============================================================
-
-async function buySeries(seriesId) {
-  clearNotice();
-  if (!currentUser) return notice("Test Series खरीदने से पहले sign in करें।");
-
-  const series = catalogue.find(item => item.id === seriesId);
-  if (!series) return notice("Series नहीं मिली। Catalogue refresh करें।");
-  if (!window.Razorpay) return notice("Razorpay Checkout load नहीं हुआ। Internet connection जाँचें।");
-
-  try {
-    const order = await api("/api/create-order", {
-      method: "POST",
-      body: JSON.stringify({ seriesId })
-    });
-
-    if (!order?.orderId || !order?.keyId || !order?.amount) {
-      throw new Error("Server से Razorpay order details अधूरी मिलीं।");
     }
 
-    const checkout = new window.Razorpay({
-      key: order.keyId,
-      amount: order.amount,
-      currency: order.currency || "INR",
-      name: order.name || "Bihar Academic Battle",
-      description: order.description || series.title,
-      order_id: order.orderId,
-      prefill: { email: currentUser.email || "" },
-      theme: { color: "#123b82" },
-      handler: async response => {
-        try {
-          notice("Payment details verify किए जा रहे हैं…", "success");
-          const verified = await api("/api/verify-payment", {
-            method: "POST",
-            body: JSON.stringify(response)
-          });
-          notice(verified.message || "Payment verified successfully.", "success");
-          await loadMine();
-          showView("mine");
-        } catch (error) {
-          notice(`${error.message} यदि पैसे कट गए हैं, तो दोबारा भुगतान करने से पहले My Test Series refresh करें।`);
-        }
-      }
-    });
+    renderPaymentHistory(
+      history.purchases || []
+    );
 
-    checkout.on("payment.failed", response => {
-      notice(response.error?.description || "Payment fail हुआ। Purchase access नहीं दिया गया।");
-    });
-
-    checkout.open();
   } catch (error) {
-    notice(error.message);
+    showNotice(error.message, "error");
   }
 }
 
-// ============================================================
-// MY TEST SERIES
-// ============================================================
+/* ==========================================
+   19. SAVE PROFILE
+========================================== */
 
-async function loadMine() {
-  const host = $("mineGrid");
-  if (!host) return;
-
-  if (!currentUser) {
-    host.innerHTML = `<div class="empty">अपनी purchases देखने के लिए sign in करें।</div>`;
-    return;
-  }
-
-  setHidden("paperPanel", true);
-  host.innerHTML = `<div class="empty">Verified purchases लोड हो रही हैं…</div>`;
-
-  try {
-    const data = await api("/api/my-series");
-    const series = Array.isArray(data.series) ? data.series : [];
-
-    host.innerHTML = series.length
-      ? series.map(item => seriesCard(item, true)).join("")
-      : `<div class="empty">अभी कोई verified purchase नहीं है।</div>`;
-
-    host.querySelectorAll("[data-open-series]").forEach(button => {
-      button.addEventListener("click", () => openSeriesPapers(button.dataset.openSeries));
-    });
-  } catch (error) {
-    host.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
-  }
-}
-
-$("refreshMine")?.addEventListener("click", loadMine);
-
-$("backToMine")?.addEventListener("click", () => {
-  setHidden("paperPanel", true);
-  setHidden("mineGrid", false);
-});
-
-// ============================================================
-// OPEN SERIES PAPERS (User)
-// ============================================================
-
-async function openSeriesPapers(seriesId) {
-  if (!currentUser) return notice("पहले sign in करें।");
-
-  try {
-    clearNotice();
-
-    const access = await api(`/api/access/${encodeURIComponent(seriesId)}`);
-    if (!access?.allowed) {
-      throw new Error("इस series का verified access उपलब्ध नहीं है।");
-    }
-
-    const mineData = await api("/api/my-series");
-    const mySeries = Array.isArray(mineData.series) ? mineData.series : [];
-    const series = mySeries.find(item => String(item.id) === String(seriesId));
-    if (!series) throw new Error("यह series आपकी verified purchases में नहीं मिली।");
-
-    currentSeries = series;
-
-    const data = await api(`/api/papers?seriesId=${encodeURIComponent(seriesId)}`);
-    const papers = Array.isArray(data.papers) ? data.papers : [];
-
-    const heading = $("paperHeading");
-    const grid = $("paperGrid");
-
-    if (!heading || !grid) {
-      throw new Error("HTML में paperHeading / paperGrid element नहीं मिला।");
-    }
-
-    heading.textContent = `${series.title} — Published Papers`;
-
-    grid.innerHTML = papers.length
-      ? papers.map(paper => `
-          <article class="card">
-            <span class="pill">${escapeHtml(paper.className || "All Classes")} · ${escapeHtml(paper.subject || "General")}</span>
-            <h3>${escapeHtml(paper.title || "Question Paper")}</h3>
-            <p class="muted">
-              ${Number(paper.questionCount) || 0} MCQs · ${Number(paper.durationMinutes) || 60} minutes
-            </p>
-            ${paper.pdf
-              ? `<button type="button" class="btn" data-open-pdf="${escapeHtml(paper.id)}">Open PDF</button>`
-              : `<button type="button" class="btn" data-start-paper="${escapeHtml(paper.id)}">Start Test</button>`
-            }
-          </article>
-        `).join("")
-      : `<div class="empty">
-          <h3>अभी कोई published question paper नहीं है।</h3>
-          <p>Admin panel में paper publish करें और series select करना न भूलें।</p>
-        </div>`;
-
-    grid.querySelectorAll("[data-open-pdf]").forEach(button => {
-      button.addEventListener("click", () => window.openQuestionPaperPDF(button.dataset.openPdf));
-    });
-
-    grid.querySelectorAll("[data-start-paper]").forEach(button => {
-      button.addEventListener("click", () => {
-        if (typeof window.startPaper === "function") {
-          window.startPaper(button.dataset.startPaper);
-        } else {
-          notice("MCQ test engine अभी configure नहीं है।");
-        }
-      });
-    });
-
-    setHidden("mineGrid", true);
-    setHidden("paperPanel", false);
-    $("paperPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (error) {
-    console.error("openSeriesPapers:", error);
-    notice(error.message);
-  }
-}
-
-// ============================================================
-// ADMIN: SERIES FORM
-// ============================================================
-
-$("seriesForm")?.addEventListener("submit", async event => {
+async function saveProfile(event) {
   event.preventDefault();
-  if (!currentUser) return notice("Admin account से sign in करें।");
 
-  const button = event.submitter;
-  setBusy(button, true, "Saving…");
+  if (!requireLogin()) return;
+
+  const displayName =
+    $("profileNameInput")?.value.trim();
+
+  if (!displayName || displayName.length < 2) {
+    showNotice(
+      "Name कम से कम 2 characters का होना चाहिए।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    setButtonLoading(
+      $("saveProfileBtn"),
+      true,
+      "Saving..."
+    );
+
+    await api("/profile", {
+      method: "PUT",
+      body: jsonBody({
+        displayName
+      })
+    });
+
+    await updateProfile(currentUser, {
+      displayName
+    });
+
+    showNotice("Profile updated successfully.");
+
+    await loadProfile();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  } finally {
+    setButtonLoading(
+      $("saveProfileBtn"),
+      false
+    );
+  }
+}
+
+/* ==========================================
+   20. PAYMENT HISTORY
+========================================== */
+
+async function loadMyPurchases() {
+  if (!currentUser) return;
+
+  try {
+    const result = await api("/my-purchases");
+
+    renderPaymentHistory(
+      result.purchases || []
+    );
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+function renderPaymentHistory(purchases) {
+  const container = $("paymentHistory");
+
+  if (!container) return;
+
+  if (!purchases.length) {
+    container.innerHTML = `
+      <p>No payment history found.</p>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = purchases.map(item => `
+    <div class="history-row">
+
+      <strong>
+        ${escapeHTML(item.seriesTitle || "Test Series")}
+      </strong>
+
+      <span>
+        ${formatMoney(item.amountPaise)}
+      </span>
+
+      <span>
+        ${formatDate(item.purchasedAt)}
+      </span>
+
+      <span class="status-pill">
+        ${escapeHTML(item.status)}
+      </span>
+
+    </div>
+  `).join("");
+}
+
+/* ==========================================
+   21. ADMIN DASHBOARD
+========================================== */
+
+async function loadAdmin() {
+  if (!requireAdmin()) return;
+
+  const jobs = await Promise.allSettled([
+    loadAdminSeries(),
+    loadAdminPapers(),
+    loadAdminPurchases(),
+    loadAdminUsers()
+  ]);
+
+  renderAdminCharts(
+    adminData.purchases,
+    adminData.series,
+    adminData.papers
+  );
+
+  updateAdminCounters();
+
+  if (jobs.some(job => job.status === "rejected")) {
+    showNotice(
+      "कुछ Admin डेटा लोड नहीं हो पाया। Refresh करें।",
+      "error"
+    );
+  }
+}
+
+/* ==========================================
+   22. ADMIN SERIES
+========================================== */
+
+async function loadAdminSeries() {
+  const result = await api("/admin/series");
+
+  const series = Array.isArray(result.series)
+    ? result.series
+    : [];
+
+  adminData.series = series;
+  currentSeries = series;
+
+  renderAdminSeries(series);
+
+  updateSeriesDropdowns(series);
+  updateAdminCounters();
+
+  return series;
+}
+
+function renderAdminSeries(series) {
+  const container = $("adminSeries");
+
+  if (!container) return;
+
+  if (!series.length) {
+    container.innerHTML = `
+      <p>No test series found.</p>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = series.map(item => `
+    <div class="admin-list-row">
+
+      <div>
+
+        <strong>
+          ${escapeHTML(item.title)}
+        </strong>
+
+        <small>
+          ${escapeHTML(item.className)}
+          ·
+          ${escapeHTML(item.subject)}
+        </small>
+
+        <small>
+          ${formatMoney(item.pricePaise)}
+          ·
+          ${Number(item.testCount || 0)} tests
+        </small>
+
+        <span class="status-pill">
+          ${item.active ? "Active" : "Hidden"}
+        </span>
+
+      </div>
+
+      <div class="admin-actions">
+
+        <button
+          type="button"
+          data-edit-series="${escapeHTML(item.id)}"
+        >
+          Edit
+        </button>
+
+        <button
+          type="button"
+          data-toggle-series="${escapeHTML(item.id)}"
+        >
+          ${item.active ? "Hide" : "Publish"}
+        </button>
+
+        <button
+          type="button"
+          data-delete-series="${escapeHTML(item.id)}"
+        >
+          Disable
+        </button>
+
+      </div>
+
+    </div>
+  `).join("");
+
+  container.querySelectorAll("[data-edit-series]").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = series.find(
+        row => row.id === button.dataset.editSeries
+      );
+
+      if (item) editSeries(item);
+    });
+  });
+
+  container.querySelectorAll("[data-toggle-series]").forEach(button => {
+    button.addEventListener("click", () => {
+      toggleSeries(button.dataset.toggleSeries);
+    });
+  });
+
+  container.querySelectorAll("[data-delete-series]").forEach(button => {
+    button.addEventListener("click", () => {
+      disableSeries(button.dataset.deleteSeries);
+    });
+  });
+}
+
+/* ==========================================
+   23. EDIT SERIES
+========================================== */
+
+function editSeries(item) {
+  $("seriesId").value = item.id;
+
+  $("sTitle").value = item.title || "";
+  $("sSubject").value = item.subject || "";
+  $("sClass").value = item.className || "";
+
+  $("sPrice").value =
+    Number(item.pricePaise || 0) / 100;
+
+  $("sCount").value =
+    item.testCount || 1;
+
+  $("sDesc").value =
+    item.description || "";
+
+  if ($("sActive")) {
+    $("sActive").value =
+      item.active === false ? "false" : "true";
+  }
+
+  setText(
+    "formHeading",
+    "Edit Test Series"
+  );
+
+  $("seriesForm")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+/* ==========================================
+   24. TOGGLE SERIES
+========================================== */
+
+async function toggleSeries(id) {
+  if (!requireAdmin()) return;
+
+  const item = adminData.series.find(
+    series => series.id === id
+  );
+
+  if (!item) return;
+
+  try {
+    await api(
+      `/admin/series/${encodeURIComponent(id)}/toggle`,
+      {
+        method: "POST",
+        body: jsonBody({
+          active: item.active === false
+        })
+      }
+    );
+
+    showNotice("Series status updated.");
+
+    await loadAdminSeries();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   25. DISABLE SERIES
+========================================== */
+
+async function disableSeries(id) {
+  if (!requireAdmin()) return;
+
+  if (!confirm("इस Series को disable करना चाहते हैं?")) {
+    return;
+  }
+
+  try {
+    await api(
+      `/admin/series/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    showNotice("Series disabled.");
+
+    await loadAdminSeries();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   26. SAVE SERIES
+========================================== */
+
+async function saveAdminSeries(event) {
+  event.preventDefault();
+
+  if (!requireAdmin()) return;
+
+  const id = $("seriesId")?.value;
 
   const payload = {
-    id: ($("seriesId")?.value || "").trim() || undefined,
-    title: ($("sTitle")?.value || "").trim(),
-    subject: ($("sSubject")?.value || "").trim(),
-    className: $("sClass")?.value || "",
-    priceRupees: Number($("sPrice")?.value),
-    testCount: Number($("sCount")?.value),
-    active: $("sActive")?.value === "true",
-    description: ($("sDesc")?.value || "").trim()
+    title: $("sTitle")?.value.trim(),
+
+    subject: $("sSubject")?.value.trim(),
+
+    className: $("sClass")?.value.trim(),
+
+    pricePaise: Math.round(
+      Number($("sPrice")?.value || 0) * 100
+    ),
+
+    testCount: Number(
+      $("sCount")?.value || 1
+    ),
+
+    description: $("sDesc")?.value.trim(),
+
+    active:
+      $("sActive")?.value !== "false"
   };
 
+  if (
+    !payload.title ||
+    !payload.subject ||
+    !payload.className
+  ) {
+    showNotice(
+      "Title, Class और Subject भरें।",
+      "error"
+    );
+
+    return;
+  }
+
   try {
-    await api("/api/admin/series", { method: "POST", body: JSON.stringify(payload) });
-    notice("Test Series save हो गई।", "success");
-    clearSeriesForm();
-    await loadAdmin();
-    await loadCatalogue();
-    await populateSeriesDropdowns();
+    const button = $("seriesForm")?.querySelector(
+      '[type="submit"]'
+    );
+
+    setButtonLoading(
+      button,
+      true,
+      "Saving..."
+    );
+
+    if (id) {
+      await api(
+        `/admin/series/${encodeURIComponent(id)}`,
+        {
+          method: "PUT",
+          body: jsonBody(payload)
+        }
+      );
+    } else {
+      await api("/admin/series", {
+        method: "POST",
+        body: jsonBody(payload)
+      });
+    }
+
+    $("seriesForm")?.reset();
+
+    $("seriesId").value = "";
+
+    setText(
+      "formHeading",
+      "Add Test Series"
+    );
+
+    showNotice("Test Series saved.");
+
+    await loadAdminSeries();
+
   } catch (error) {
-    notice(error.message);
+    showNotice(error.message, "error");
   } finally {
-    setBusy(button, false);
-  }
-});
-
-function clearSeriesForm() {
-  $("seriesForm")?.reset();
-  if ($("seriesId")) $("seriesId").value = "";
-  setText("formHeading", "Add test series");
-}
-
-$("clearForm")?.addEventListener("click", clearSeriesForm);
-
-// ============================================================
-// SERIES DROPDOWNS (for paper forms)
-// ============================================================
-
-async function populateSeriesDropdowns() {
-  try {
-    const data = await api("/api/admin/series");
-    const series = Array.isArray(data.series) ? data.series : [];
-    adminSeriesCache = series;
-
-    const options = series
-      .map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.title)} (${escapeHtml(s.className)} · ${escapeHtml(s.subject)})</option>`)
-      .join("");
-
-    const defaultOption = `<option value="">— Select Series (recommended) —</option>`;
-
-    if ($("paperSeriesId")) $("paperSeriesId").innerHTML = defaultOption + options;
-    if ($("pdfSeriesId")) $("pdfSeriesId").innerHTML = defaultOption + options;
-  } catch (err) {
-    console.warn("Could not load series for dropdowns:", err.message);
+    setButtonLoading(
+      $("seriesForm")?.querySelector('[type="submit"]'),
+      false
+    );
   }
 }
 
-// ============================================================
-// MCQ QUESTION EDITOR
-// ============================================================
+/* ==========================================
+   27. SERIES DROPDOWNS
+========================================== */
 
-function addQuestionEditor(question = {}) {
-  const host = $("paperQuestions");
-  if (!host) return;
+function updateSeriesDropdowns(series) {
+  [
+    "pdfSeriesId",
+    "paperSeriesId"
+  ].forEach(id => {
+    const select = $(id);
 
-  if (host.querySelector(".empty")) host.innerHTML = "";
+    if (!select) return;
 
-  const index = host.querySelectorAll(".question-card").length;
-  const options = Array.isArray(question.options) ? question.options : ["", "", "", ""];
+    const previous = select.value;
 
-  const card = document.createElement("div");
-  card.className = "question-card";
-  card.dataset.questionCard = "true";
+    select.innerHTML = `
+      <option value="">
+        Select Test Series
+      </option>
 
-  card.innerHTML = `
-    <div class="sectionhead">
-      <h4>Question ${index + 1}</h4>
-      <button type="button" class="btn secondary" data-remove-question>Remove</button>
-    </div>
-    <div class="field">
-      <label>Question text</label>
-      <textarea data-q-text maxlength="1000" required placeholder="Type the question">${escapeHtml(question.question || "")}</textarea>
-    </div>
-    <div class="option-grid" style="margin-top:12px">
-      ${[0,1,2,3].map(n => `
-        <div class="field">
-          <label>Option ${String.fromCharCode(65 + n)}</label>
-          <input data-q-option="${n}" maxlength="400" required value="${escapeHtml(options[n] || "")}" placeholder="Option ${String.fromCharCode(65 + n)}">
-        </div>
+      ${series.map(item => `
+        <option value="${escapeHTML(item.id)}">
+          ${escapeHTML(item.title)}
+        </option>
       `).join("")}
-    </div>
-    <div class="formgrid" style="margin-top:12px">
-      <div class="field">
-        <label>Correct answer</label>
-        <select data-q-correct>
-          ${[0,1,2,3].map(n => `
-            <option value="${n}" ${Number(question.correctIndex ?? 0) === n ? "selected" : ""}>
-              Option ${String.fromCharCode(65 + n)}
-            </option>
-          `).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>Explanation (optional)</label>
-        <textarea data-q-explanation maxlength="1000" placeholder="Explain the correct answer">${escapeHtml(question.explanation || "")}</textarea>
-      </div>
-    </div>
-  `;
+    `;
 
-  card.querySelector("[data-remove-question]")?.addEventListener("click", () => {
-    card.remove();
-    renumberQuestions();
-    if (!host.querySelector("[data-question-card]")) {
-      host.innerHTML = `<div class="empty">Click “Add question” to begin.</div>`;
+    if (
+      series.some(item => item.id === previous)
+    ) {
+      select.value = previous;
     }
   });
-
-  host.appendChild(card);
-  renumberQuestions();
 }
 
-function renumberQuestions() {
-  [...($("paperQuestions")?.querySelectorAll("[data-question-card]") || [])].forEach((card, i) => {
-    const h = card.querySelector("h4");
-    if (h) h.textContent = `Question ${i + 1}`;
+/* ==========================================
+   28. ADMIN PAPER LOADER
+========================================== */
+
+async function loadAdminPapers() {
+  const result = await api("/admin/papers");
+
+  const papers = Array.isArray(result.papers)
+    ? result.papers
+    : [];
+
+  adminData.papers = papers;
+
+  renderAdminPapers(papers);
+
+  updateAdminCounters();
+
+  return papers;
+}
+
+/* ==========================================
+   29. RENDER ADMIN PAPERS
+========================================== */
+
+function renderAdminPapers(papers) {
+  const container = $("adminPapers");
+
+  if (!container) return;
+
+  if (!papers.length) {
+    container.innerHTML = `
+      <p>No papers found.</p>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = papers.map(paper => `
+    <div class="admin-list-row">
+
+      <div>
+
+        <strong>
+          ${escapeHTML(paper.title)}
+        </strong>
+
+        <small>
+          ${escapeHTML(paper.className)}
+          ·
+          ${escapeHTML(paper.subject)}
+        </small>
+
+        <small>
+          ${escapeHTML(paper.type)}
+          ·
+          ${Number(paper.durationMinutes || 60)} min
+        </small>
+
+        <span class="status-pill">
+          ${escapeHTML(paper.status)}
+        </span>
+
+      </div>
+
+      <div class="admin-actions">
+
+        ${
+          paper.type === "pdf"
+            ? `
+              <button
+                type="button"
+                data-preview-pdf="${escapeHTML(paper.id)}"
+              >
+                Preview PDF
+              </button>
+            `
+            : `
+              <button
+                type="button"
+                data-edit-paper="${escapeHTML(paper.id)}"
+              >
+                Edit MCQ
+              </button>
+            `
+        }
+
+        <button
+          type="button"
+          data-publish-paper="${escapeHTML(paper.id)}"
+          data-status="${escapeHTML(paper.status)}"
+        >
+          ${
+            paper.status === "published"
+              ? "Unpublish"
+              : "Publish"
+          }
+        </button>
+
+        <button
+          type="button"
+          data-delete-paper="${escapeHTML(paper.id)}"
+        >
+          Delete
+        </button>
+
+      </div>
+
+    </div>
+  `).join("");
+
+  container.querySelectorAll("[data-preview-pdf]").forEach(button => {
+    button.addEventListener("click", () => {
+      previewAdminPDF(button.dataset.previewPdf);
+    });
+  });
+
+  container.querySelectorAll("[data-edit-paper]").forEach(button => {
+    button.addEventListener("click", () => {
+      editMCQPaper(button.dataset.editPaper);
+    });
+  });
+
+  container.querySelectorAll("[data-publish-paper]").forEach(button => {
+    button.addEventListener("click", () => {
+      const published =
+        button.dataset.status !== "published";
+
+      publishPaper(
+        button.dataset.publishPaper,
+        published
+      );
+    });
+  });
+
+  container.querySelectorAll("[data-delete-paper]").forEach(button => {
+    button.addEventListener("click", () => {
+      deletePaper(button.dataset.deletePaper);
+    });
   });
 }
 
-$("addPaperQuestion")?.addEventListener("click", () => addQuestionEditor());
+/* ==========================================
+   30. PUBLISH / UNPUBLISH PAPER
+========================================== */
 
-function readQuestionsFromForm() {
-  return [...($("paperQuestions")?.querySelectorAll("[data-question-card]") || [])].map((card, index) => ({
-    id: `q_${index + 1}`,
-    question: card.querySelector("[data-q-text]")?.value.trim() || "",
-    options: [0,1,2,3].map(n => card.querySelector(`[data-q-option="${n}"]`)?.value.trim() || ""),
-    correctIndex: Number(card.querySelector("[data-q-correct]")?.value || 0),
-    explanation: card.querySelector("[data-q-explanation]")?.value.trim() || ""
+async function publishPaper(id, published) {
+  try {
+    await api(
+      `/admin/papers/${encodeURIComponent(id)}/publish`,
+      {
+        method: "POST",
+        body: jsonBody({
+          published
+        })
+      }
+    );
+
+    showNotice(
+      published
+        ? "Paper published."
+        : "Paper unpublished."
+    );
+
+    await loadAdminPapers();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   31. DELETE PAPER
+========================================== */
+
+async function deletePaper(id) {
+  if (!confirm("इस Paper को delete करना चाहते हैं?")) {
+    return;
+  }
+
+  try {
+    await api(
+      `/admin/papers/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    showNotice("Paper deleted.");
+
+    await loadAdminPapers();
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   32. ADMIN PDF PREVIEW
+========================================== */
+
+async function previewAdminPDF(id) {
+  try {
+    const blob = await api(
+      `/admin/papers/${encodeURIComponent(id)}/pdf`
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    window.open(
+      url,
+      "_blank",
+      "noopener"
+    );
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+
+  } catch (error) {
+    showNotice(error.message, "error");
+  }
+}
+
+/* ==========================================
+   33. MCQ QUESTION EDITOR
+========================================== */
+
+function addQuestionEditor(question = {}) {
+  const container = $("paperQuestions");
+
+  if (!container) return;
+
+  const index =
+    container.querySelectorAll(".question-editor").length + 1;
+
+  const options = Array.isArray(question.options)
+    ? question.options
+    : ["", "", "", ""];
+
+  const editor = document.createElement("div");
+
+  editor.className = "question-editor";
+
+  editor.innerHTML = `
+
+    <div class="question-editor-head">
+
+      <strong>
+        Question ${index}
+      </strong>
+
+      <button
+        type="button"
+        class="remove-question"
+      >
+        Remove
+      </button>
+
+    </div>
+
+    <label>
+      Question
+
+      <textarea
+        class="question-text"
+        required
+      >${escapeHTML(question.question || "")}</textarea>
+
+    </label>
+
+    <div class="option-grid">
+
+      <label>
+        Option A
+
+        <input
+          class="option-a"
+          value="${escapeHTML(options[0] || "")}"
+          required
+        >
+      </label>
+
+      <label>
+        Option B
+
+        <input
+          class="option-b"
+          value="${escapeHTML(options[1] || "")}"
+          required
+        >
+      </label>
+
+      <label>
+        Option C
+
+        <input
+          class="option-c"
+          value="${escapeHTML(options[2] || "")}"
+          required
+        >
+      </label>
+
+      <label>
+        Option D
+
+        <input
+          class="option-d"
+          value="${escapeHTML(options[3] || "")}"
+          required
+        >
+      </label>
+
+    </div>
+
+    <label>
+      Correct Answer
+
+      <select class="correct-answer">
+
+        <option value="0"
+          ${Number(question.correctIndex) === 0 ? "selected" : ""}>
+          A
+        </option>
+
+        <option value="1"
+          ${Number(question.correctIndex) === 1 ? "selected" : ""}>
+          B
+        </option>
+
+        <option value="2"
+          ${Number(question.correctIndex) === 2 ? "selected" : ""}>
+          C
+        </option>
+
+        <option value="3"
+          ${Number(question.correctIndex) === 3 ? "selected" : ""}>
+          D
+        </option>
+
+      </select>
+
+    </label>
+
+    <label>
+      Explanation (optional)
+
+      <textarea
+        class="question-explanation"
+      >${escapeHTML(question.explanation || "")}</textarea>
+
+    </label>
+
+  `;
+
+  editor.querySelector(
+    ".remove-question"
+  ).addEventListener("click", () => {
+    editor.remove();
+    renumberQuestionEditors();
+  });
+
+  container.appendChild(editor);
+}
+
+function renumberQuestionEditors() {
+  document.querySelectorAll(
+    "#paperQuestions .question-editor"
+  ).forEach((editor, index) => {
+    const heading = editor.querySelector(
+      ".question-editor-head strong"
+    );
+
+    if (heading) {
+      heading.textContent =
+        `Question ${index + 1}`;
+    }
+  });
+}
+
+/* ==========================================
+   34. COLLECT MCQ QUESTIONS
+========================================== */
+
+function collectQuestions() {
+  const editors = document.querySelectorAll(
+    "#paperQuestions .question-editor"
+  );
+
+  return Array.from(editors).map(editor => ({
+    question:
+      editor.querySelector(".question-text")?.value.trim() || "",
+
+    options: [
+      editor.querySelector(".option-a")?.value.trim() || "",
+      editor.querySelector(".option-b")?.value.trim() || "",
+      editor.querySelector(".option-c")?.value.trim() || "",
+      editor.querySelector(".option-d")?.value.trim() || ""
+    ],
+
+    correctIndex: Number(
+      editor.querySelector(".correct-answer")?.value || 0
+    ),
+
+    explanation:
+      editor.querySelector(".question-explanation")?.value.trim() || ""
   }));
 }
 
-function clearPaperForm() {
-  $("paperForm")?.reset();
-  if ($("paperId")) $("paperId").value = "";
-  if ($("paperQuestions")) $("paperQuestions").innerHTML = `<div class="empty">Click “Add question” to begin.</div>`;
-  if ($("paperDuration")) $("paperDuration").value = "60";
-  if ($("paperMarks")) $("paperMarks").value = "1";
-  if ($("paperStatus")) $("paperStatus").value = "draft";
-  setText("paperFormHeading", "Add Question Paper (MCQ)");
-}
+/* ==========================================
+   35. SAVE MCQ PAPER
+========================================== */
 
-$("clearPaperForm")?.addEventListener("click", clearPaperForm);
-
-// ============================================================
-// SAVE MCQ PAPER
-// ============================================================
-
-$("paperForm")?.addEventListener("submit", async event => {
+async function saveMCQPaper(event) {
   event.preventDefault();
-  if (!currentUser) return notice("Admin account से sign in करें।");
 
-  const button = event.submitter;
-  setBusy(button, true, "Saving paper…");
+  if (!requireAdmin()) return;
 
-  try {
-    const questions = readQuestionsFromForm();
-    if (!questions.length) throw new Error("कम से कम एक MCQ question जोड़ें।");
+  const questions = collectQuestions();
 
-    for (const [index, q] of questions.entries()) {
-      if (!q.question) throw new Error(`Question ${index + 1} का text भरें।`);
-      if (q.options.some(o => !o)) throw new Error(`Question ${index + 1} के सभी चार options भरें।`);
-    }
+  if (
+    !questions.length ||
+    questions.some(question =>
+      !question.question ||
+      question.options.length !== 4 ||
+      question.options.some(option => !option)
+    )
+  ) {
+    showNotice(
+      "हर Question में Question text और चारों Options भरें।",
+      "error"
+    );
 
-    const payload = {
-      id: ($("paperId")?.value || "").trim() || undefined,
-      title: ($("paperTitle")?.value || "").trim(),
-      className: $("paperClass")?.value || "",
-      subject: $("paperSubject")?.value || "",
-      seriesId: ($("paperSeriesId")?.value || "").trim() || null,
-      durationMinutes: Number($("paperDuration")?.value || 60),
-      marksPerQuestion: Number($("paperMarks")?.value || 1),
-      instructions: ($("paperInstructions")?.value || "").trim(),
-      status: $("paperStatus")?.value || "draft",
-      questions
-    };
-
-    if (!payload.title || !payload.className || !payload.subject) {
-      throw new Error("Paper title, class और subject भरें।");
-    }
-
-    const result = await api("/api/admin/papers", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    notice("Question Paper save हो गया।", "success");
-    clearPaperForm();
-    await loadAdminPapers();
-  } catch (error) {
-    notice(error.message);
-  } finally {
-    setBusy(button, false);
-  }
-});
-
-// ============================================================
-// PDF PAPER FORM
-// ============================================================
-
-const pdfForm = $("pdfPaperForm");
-const pdfInput = $("pdfPaperFile");
-let selectedPdf = null;
-const MAX_PDF_BYTES = 10 * 1024 * 1024;
-
-pdfInput?.addEventListener("change", () => {
-  selectedPdf = pdfInput.files?.[0] || null;
-  $("selectedPdfName").textContent = selectedPdf
-    ? `${selectedPdf.name} · ${(selectedPdf.size / 1024 / 1024).toFixed(2)} MB`
-    : "No PDF selected.";
-
-  if (selectedPdf && !validatePdf(selectedPdf)) {
-    selectedPdf = null;
-    pdfInput.value = "";
-    $("selectedPdfName").textContent = "No valid PDF selected.";
-  }
-});
-
-function validatePdf(file) {
-  const extension = file.name.toLowerCase().endsWith(".pdf");
-  const mimeOK = file.type === "application/pdf" || file.type === "";
-  if (!extension || !mimeOK) {
-    notice("Only PDF files are allowed.", "error");
-    return false;
-  }
-  if (file.size <= 0 || file.size > MAX_PDF_BYTES) {
-    notice("PDF file must be greater than 0 bytes and no larger than 10 MB.", "error");
-    return false;
-  }
-  return true;
-}
-
-function clearPdfForm() {
-  pdfForm?.reset();
-  if ($("pdfPaperId")) $("pdfPaperId").value = "";
-  if ($("pdfPaperDuration")) $("pdfPaperDuration").value = 60;
-  if ($("pdfPaperStatus")) $("pdfPaperStatus").value = "draft";
-  setText("pdfFormHeading", "Upload PDF Question Paper");
-  if ($("selectedPdfName")) $("selectedPdfName").textContent = "No PDF selected.";
-  if ($("pdfUploadStatus")) $("pdfUploadStatus").textContent = "";
-  $("pdfProgress")?.classList.add("hidden");
-  if ($("pdfProgressBar")) $("pdfProgressBar").style.width = "0%";
-  selectedPdf = null;
-}
-
-$("clearPdfPaperBtn")?.addEventListener("click", clearPdfForm);
-
-pdfForm?.addEventListener("submit", async event => {
-  event.preventDefault();
-  if (!currentUser) return notice("Admin account से sign in करें।");
-
-  const file = pdfInput?.files?.[0] || null;
-  const existingId = ($("pdfPaperId")?.value || "").trim();
-
-  if (file && !validatePdf(file)) return;
-  if (!existingId && !file) {
-    notice("Please select a PDF file for the new paper.", "error");
     return;
   }
 
-  const metadata = {
-    id: existingId || null,
-    title: ($("pdfPaperTitle")?.value || "").trim(),
-    className: $("pdfPaperClass")?.value || "",
-    subject: $("pdfPaperSubject")?.value || "",
-    seriesId: ($("pdfSeriesId")?.value || "").trim() || null,
-    durationMinutes: Number($("pdfPaperDuration")?.value || 60),
-    instructions: ($("pdfPaperInstructions")?.value || "").trim(),
-    status: "draft",
-    type: "pdf"
+  const payload = {
+    id: $("paperId")?.value || undefined,
+
+    title: $("paperTitle")?.value.trim(),
+
+    seriesId:
+      $("paperSeriesId")?.value || null,
+
+    className:
+      $("paperClass")?.value.trim(),
+
+    subject:
+      $("paperSubject")?.value.trim(),
+
+    durationMinutes: Number(
+      $("paperDuration")?.value || 60
+    ),
+
+    marksPerQuestion: Number(
+      $("paperMarks")?.value || 1
+    ),
+
+    status:
+      $("paperStatus")?.value || "draft",
+
+    instructions:
+      $("paperInstructions")?.value.trim(),
+
+    questions
   };
 
-  const btn = $("savePdfPaperBtn");
-  setBusy(btn, true, "Saving PDF paper…");
-  if ($("pdfUploadStatus")) $("pdfUploadStatus").textContent = "";
-  $("pdfProgress")?.classList.remove("hidden");
-  if ($("pdfProgressBar")) $("pdfProgressBar").style.width = "10%";
-
   try {
-    let paperId = existingId;
-
-    if (!paperId) {
-      const created = await api("/api/admin/papers/pdf-metadata", {
-        method: "POST",
-        body: JSON.stringify(metadata)
-      });
-      paperId = created.paper?.id || created.id;
-      if (!paperId) throw new Error("Server did not return the new paper ID.");
-      if ($("pdfPaperId")) $("pdfPaperId").value = paperId;
-    } else {
-      await api("/api/admin/papers/pdf-metadata", {
-        method: "POST",
-        body: JSON.stringify(metadata)
-      });
-    }
-
-    if ($("pdfProgressBar")) $("pdfProgressBar").style.width = "30%";
-
-    if (file) {
-      const body = new FormData();
-      body.append("pdf", file, file.name);
-      const uploaded = await api(`/api/admin/papers/${encodeURIComponent(paperId)}/pdf`, {
-        method: "POST",
-        body
-      });
-      if ($("pdfProgressBar")) $("pdfProgressBar").style.width = "85%";
-      if ($("pdfUploadStatus")) $("pdfUploadStatus").textContent = uploaded.message || "PDF uploaded. Finishing…";
-    }
-
-    if ($("pdfPaperStatus")?.value === "published") {
-      await api(`/api/admin/papers/${encodeURIComponent(paperId)}/publish`, {
-        method: "POST",
-        body: JSON.stringify({ status: "published" })
-      });
-    }
-
-    if ($("pdfProgressBar")) $("pdfProgressBar").style.width = "100%";
-    if ($("pdfUploadStatus")) $("pdfUploadStatus").textContent = "Saved successfully.";
-    notice(
-      $("pdfPaperStatus")?.value === "published"
-        ? "PDF question paper saved and published."
-        : "PDF question paper saved as draft.",
-      "success"
+    setButtonLoading(
+      $("savePaperBtn"),
+      true,
+      "Saving..."
     );
+
+    await api("/admin/papers", {
+      method: "POST",
+      body: jsonBody(payload)
+    });
+
+    showNotice("MCQ Paper saved.");
+
+    clearMCQForm();
+
     await loadAdminPapers();
-    clearPdfForm();
+
   } catch (error) {
-    if ($("pdfUploadStatus")) $("pdfUploadStatus").textContent = "Upload/save failed: " + error.message;
-    notice("PDF question paper error: " + error.message, "error");
+    showNotice(error.message, "error");
   } finally {
-    setBusy(btn, false);
-  }
-});
-
-// ============================================================
-// ADMIN PAPERS LIST
-// ============================================================
-
-async function loadAdminPapers() {
-  const host = $("adminPapers");
-  if (!host) return;
-
-  host.innerHTML = `<p class="muted">Loading papers…</p>`;
-
-  try {
-    const data = await api("/api/admin/papers");
-    allAdminPapers = Array.isArray(data.papers) ? data.papers : [];
-
-    if (!allAdminPapers.length) {
-      host.innerHTML = `<p class="muted">अभी कोई question paper नहीं है।</p>`;
-      return;
-    }
-
-    host.innerHTML = `
-      <table>
-        <thead>
-          <tr>
-            <th>Paper</th>
-            <th>Class / Subject</th>
-            <th>Series</th>
-            <th>Questions</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${allAdminPapers.map(paper => {
-            const isPdf = paper.type === "pdf" || paper.pdf;
-            return `
-              <tr>
-                <td>
-                  <strong>${escapeHtml(paper.title)}</strong><br>
-                  <small>${escapeHtml(paper.id)}</small>
-                </td>
-                <td>${escapeHtml(paper.className || "—")} / ${escapeHtml(paper.subject || "—")}</td>
-                <td><small>${escapeHtml(paper.seriesId || "—")}</small></td>
-                <td>${Array.isArray(paper.questions) ? paper.questions.length : (Number(paper.questionCount) || 0)}</td>
-                <td><span class="status ${isPdf ? "pdf" : ""}">${isPdf ? "PDF" : "MCQ"}</span></td>
-                <td>
-                  <span class="status ${paper.status === "published" ? "published" : "draft"}">
-                    ${paper.status === "published" ? "Published" : "Draft"}
-                  </span>
-                </td>
-                <td>
-                  <div class="paper-row-actions">
-                    ${isPdf
-                      ? `<button type="button" class="btn secondary" data-pdf-view="${escapeHtml(paper.id)}">Open PDF</button>`
-                      : `<button type="button" class="btn secondary" data-edit-paper="${escapeHtml(paper.id)}">Edit MCQ</button>`
-                    }
-                    <button type="button" class="btn" data-publish-paper="${escapeHtml(paper.id)}" data-published="${paper.status !== "published"}">
-                      ${paper.status === "published" ? "Unpublish" : "Publish"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    `;
-
-    host.querySelectorAll("[data-edit-paper]").forEach(button => {
-      button.addEventListener("click", () => {
-        const paper = allAdminPapers.find(p => p.id === button.dataset.editPaper);
-        if (paper) editPaper(paper);
-      });
-    });
-
-    host.querySelectorAll("[data-pdf-view]").forEach(button => {
-      button.addEventListener("click", () => openAdminPdf(button.dataset.pdfView));
-    });
-
-    host.querySelectorAll("[data-publish-paper]").forEach(button => {
-      button.addEventListener("click", () => {
-        togglePaperPublish(button.dataset.publishPaper, button.dataset.published === "true");
-      });
-    });
-  } catch (error) {
-    host.innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+    setButtonLoading(
+      $("savePaperBtn"),
+      false
+    );
   }
 }
 
-async function openAdminPdf(id) {
-  try {
-    const token = await window.BAB_GET_ID_TOKEN();
-    const response = await fetch(`/api/admin/papers/${encodeURIComponent(id)}/pdf`, {
-      headers: { Authorization: "Bearer " + token }
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || "Unable to open PDF");
-    }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank", "noopener");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (error) {
-    notice("Could not open PDF: " + error.message);
-  }
-}
+/* ==========================================
+   36. CLEAR MCQ FORM
+========================================== */
 
-function editPaper(paper) {
-  if ($("paperId")) $("paperId").value = paper.id || "";
-  if ($("paperTitle")) $("paperTitle").value = paper.title || "";
-  if ($("paperClass")) $("paperClass").value = paper.className || "";
-  if ($("paperSubject")) $("paperSubject").value = paper.subject || "";
-  if ($("paperSeriesId")) $("paperSeriesId").value = paper.seriesId || "";
-  if ($("paperDuration")) $("paperDuration").value = paper.durationMinutes || 60;
-  if ($("paperMarks")) $("paperMarks").value = paper.marksPerQuestion || 1;
-  if ($("paperStatus")) $("paperStatus").value = paper.status || "draft";
-  if ($("paperInstructions")) $("paperInstructions").value = paper.instructions || "";
+function clearMCQForm() {
+  $("paperForm")?.reset();
+
+  if ($("paperId")) {
+    $("paperId").value = "";
+  }
 
   if ($("paperQuestions")) {
     $("paperQuestions").innerHTML = "";
-    (paper.questions || []).forEach(q => addQuestionEditor(q));
-    if (!(paper.questions || []).length) addQuestionEditor();
-  }
-
-  setText("paperFormHeading", "Edit Question Paper");
-  $("questionPaperPanel")?.scrollIntoView({ behavior: "smooth" });
-  notice(`Editing: ${paper.title}`, "success");
-}
-
-async function togglePaperPublish(paperId, published) {
-  const action = published ? "publish" : "unpublish";
-  if (!confirm(`क्या आप इस paper को ${action} करना चाहते हैं?`)) return;
-
-  try {
-    await api(`/api/admin/papers/${encodeURIComponent(paperId)}/publish`, {
-      method: "POST",
-      body: JSON.stringify({ status: published ? "published" : "draft" })
-    });
-    notice(published ? "Paper publish हो गया।" : "Paper unpublish हो गया।", "success");
-    await loadAdminPapers();
-  } catch (error) {
-    notice(error.message);
   }
 }
 
-$("refreshPapers")?.addEventListener("click", loadAdminPapers);
+/* ==========================================
+   37. EDIT MCQ PAPER
+========================================== */
 
-// ============================================================
-// ADMIN DASHBOARD
-// ============================================================
+function editMCQPaper(id) {
+  const paper = adminData.papers.find(
+    item => item.id === id
+  );
 
-$("loadAdmin")?.addEventListener("click", loadAdmin);
+  if (!paper) return;
 
-async function loadAdmin() {
-  if (!currentUser) return notice("Admin account से sign in करें।");
+  $("paperId").value = paper.id;
 
-  try {
-    const [seriesData, purchaseData] = await Promise.all([
-      api("/api/admin/series"),
-      api("/api/admin/purchases")
-    ]);
+  $("paperTitle").value =
+    paper.title || "";
 
-    adminSeriesCache = Array.isArray(seriesData.series) ? seriesData.series : [];
-    renderAdminSeries(adminSeriesCache);
-    renderAdminPurchases(purchaseData.purchases || []);
-    await loadAdminPapers();
-    await populateSeriesDropdowns();
-  } catch (error) {
-    if ($("adminSeries")) $("adminSeries").innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
-    if ($("adminPurchases")) $("adminPurchases").innerHTML = `<p class="muted">Admin access required.</p>`;
-    notice(error.message);
-  }
+  $("paperSeriesId").value =
+    paper.seriesId || "";
+
+  $("paperClass").value =
+    paper.className || "";
+
+  $("paperSubject").value =
+    paper.subject || "";
+
+  $("paperDuration").value =
+    paper.durationMinutes || 60;
+
+  $("paperMarks").value =
+    paper.marksPerQuestion || 1;
+
+  $("paperStatus").value =
+    paper.status || "draft";
+
+  $("paperInstructions").value =
+    paper.instructions || "";
+
+  $("paperQuestions").innerHTML = "";
+
+  (paper.questions || []).forEach(question => {
+    addQuestionEditor(question);
+  });
+
+  $("paperForm")?.scrollIntoView({
+    behavior: "smooth"
+  });
 }
 
-function renderAdminSeries(rows) {
-  const host = $("adminSeries");
-  if (!host) return;
+/* ==========================================
+   38. ADMIN PDF UPLOAD
+========================================== */
 
-  if (!rows.length) {
-    host.innerHTML = `<p class="muted">अभी कोई series नहीं बनी है।</p>`;
+async function uploadPDFPaper(event) {
+  event.preventDefault();
+
+  if (!requireAdmin()) return;
+
+  const file = $("pdfPaperFile")?.files?.[0];
+
+  if (!file) {
+    showNotice(
+      "PDF file चुनें।",
+      "error"
+    );
+
     return;
   }
 
-  host.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Series</th>
-          <th>Class / Subject</th>
-          <th>Price</th>
-          <th>Tests</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(series => `
-          <tr>
-            <td>
-              <strong>${escapeHtml(series.title)}</strong><br>
-              <small>${escapeHtml(series.id)}</small>
-            </td>
-            <td>${escapeHtml(series.className)} / ${escapeHtml(series.subject)}</td>
-            <td>${money(series.pricePaise)}</td>
-            <td>${Number(series.testCount) || 0}</td>
-            <td>${series.active ? "Published" : "Draft"}</td>
-            <td>
-              <button type="button" class="btn secondary" data-edit-series="${escapeHtml(series.id)}">Edit</button>
-              <button type="button" class="btn" data-toggle-series="${escapeHtml(series.id)}" data-active="${!series.active}">
-                ${series.active ? "Unpublish" : "Publish"}
-              </button>
-            </td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
+  if (
+    file.type !== "application/pdf" ||
+    !file.name.toLowerCase().endsWith(".pdf")
+  ) {
+    showNotice(
+      "केवल PDF file upload करें।",
+      "error"
+    );
 
-  host.querySelectorAll("[data-edit-series]").forEach(button => {
-    button.addEventListener("click", () => {
-      const series = rows.find(item => item.id === button.dataset.editSeries);
-      if (!series) return;
-      if ($("seriesId")) $("seriesId").value = series.id || "";
-      if ($("sTitle")) $("sTitle").value = series.title || "";
-      if ($("sSubject")) $("sSubject").value = series.subject || "";
-      if ($("sClass")) $("sClass").value = series.className || "";
-      if ($("sPrice")) $("sPrice").value = (Number(series.pricePaise) || 0) / 100;
-      if ($("sCount")) $("sCount").value = series.testCount || 1;
-      if ($("sActive")) $("sActive").value = String(series.active);
-      if ($("sDesc")) $("sDesc").value = series.description || "";
-      setText("formHeading", "Edit test series");
-      $("seriesForm")?.scrollIntoView({ behavior: "smooth" });
-    });
-  });
+    return;
+  }
 
-  host.querySelectorAll("[data-toggle-series]").forEach(button => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.toggleSeries;
-      const active = button.dataset.active === "true";
-      try {
-        await api(`/api/admin/series/${encodeURIComponent(id)}/toggle`, {
-          method: "POST",
-          body: JSON.stringify({ active })
-        });
-        notice(active ? "Series publish हो गई।" : "Series unpublish हो गई।", "success");
-        await loadAdmin();
-        await loadCatalogue();
-      } catch (error) {
-        notice(error.message);
+  if (file.size > 10 * 1024 * 1024) {
+    showNotice(
+      "PDF अधिकतम 10 MB की हो सकती है।",
+      "error"
+    );
+
+    return;
+  }
+
+  const payload = {
+    id: $("pdfPaperId")?.value || undefined,
+
+    title:
+      $("pdfPaperTitle")?.value.trim(),
+
+    seriesId:
+      $("pdfSeriesId")?.value || null,
+
+    className:
+      $("pdfPaperClass")?.value.trim(),
+
+    subject:
+      $("pdfPaperSubject")?.value.trim(),
+
+    durationMinutes: Number(
+      $("pdfPaperDuration")?.value || 60
+    ),
+
+    instructions:
+      $("pdfPaperInstructions")?.value.trim()
+  };
+
+  if (
+    !payload.title ||
+    !payload.className ||
+    !payload.subject
+  ) {
+    showNotice(
+      "PDF Paper की सभी details भरें।",
+      "error"
+    );
+
+    return;
+  }
+
+  try {
+    setButtonLoading(
+      $("savePdfPaperBtn"),
+      true,
+      "Uploading..."
+    );
+
+    setText(
+      "selectedPdfName",
+      file.name
+    );
+
+    setText(
+      "pdfUploadStatus",
+      "Saving PDF details..."
+    );
+
+    const metadata = await api(
+      "/admin/papers/pdf-metadata",
+      {
+        method: "POST",
+        body: jsonBody(payload)
       }
-    });
-  });
+    );
+
+    if (!metadata.id) {
+      throw new Error("Paper ID नहीं मिली।");
+    }
+
+    const formData = new FormData();
+
+    formData.append("pdf", file);
+
+    setText(
+      "pdfUploadStatus",
+      "Uploading PDF..."
+    );
+
+    const uploadResult = await api(
+      `/admin/papers/${encodeURIComponent(metadata.id)}/pdf`,
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+
+    const shouldPublish =
+      $("pdfPaperStatus")?.value === "published";
+
+    if (shouldPublish) {
+      await api(
+        `/admin/papers/${encodeURIComponent(metadata.id)}/publish`,
+        {
+          method: "POST",
+          body: jsonBody({
+            published: true
+          })
+        }
+      );
+    }
+
+    setText(
+      "pdfUploadStatus",
+      uploadResult.message || "Upload complete."
+    );
+
+    setText("pdfProgress", "100%");
+
+    if ($("pdfProgressBar")) {
+      $("pdfProgressBar").style.width = "100%";
+    }
+
+    showNotice("PDF Paper successfully uploaded.");
+
+    clearPDFForm();
+
+    await loadAdminPapers();
+
+  } catch (error) {
+    setText(
+      "pdfUploadStatus",
+      error.message
+    );
+
+    showNotice(error.message, "error");
+
+  } finally {
+    setButtonLoading(
+      $("savePdfPaperBtn"),
+      false
+    );
+  }
+}
+
+/* ==========================================
+   39. CLEAR PDF FORM
+========================================== */
+
+function clearPDFForm() {
+  $("pdfPaperForm")?.reset();
+
+  if ($("pdfPaperId")) {
+    $("pdfPaperId").value = "";
+  }
+
+  setText(
+    "selectedPdfName",
+    "No file selected"
+  );
+
+  setText(
+    "pdfProgress",
+    "0%"
+  );
+
+  setText(
+    "pdfUploadStatus",
+    ""
+  );
+
+  if ($("pdfProgressBar")) {
+    $("pdfProgressBar").style.width = "0%";
+  }
+}
+
+/* ==========================================
+   40. ADMIN PURCHASES
+========================================== */
+
+async function loadAdminPurchases() {
+  const result = await api("/admin/purchases");
+
+  const purchases = Array.isArray(result.purchases)
+    ? result.purchases
+    : [];
+
+  adminData.purchases = purchases;
+
+  renderAdminPurchases(purchases);
+
+  updateAdminCounters();
+
+  return purchases;
 }
 
 function renderAdminPurchases(purchases) {
-  const host = $("adminPurchases");
-  if (!host) return;
+  const container = $("adminPurchases");
+
+  if (!container) return;
 
   if (!purchases.length) {
-    host.innerHTML = `<p class="muted">अभी कोई verified purchase नहीं है।</p>`;
+    container.innerHTML = `
+      <p>No purchases found.</p>
+    `;
+
     return;
   }
 
-  host.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Firebase UID</th>
-          <th>Series</th>
-          <th>Payment ID</th>
-          <th>Amount</th>
-          <th>Purchased</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${purchases.map(p => `
-          <tr>
-            <td>${escapeHtml(p.uid)}</td>
-            <td>${escapeHtml(p.seriesTitle)}</td>
-            <td>${escapeHtml(p.paymentId)}</td>
-            <td>${money(p.amountPaise)}</td>
-            <td>${p.purchasedAt ? escapeHtml(new Date(p.purchasedAt).toLocaleString()) : "—"}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
+  container.innerHTML = purchases.map(item => `
+    <div class="admin-list-row">
+
+      <div>
+
+        <strong>
+          ${escapeHTML(item.seriesTitle || "Test Series")}
+        </strong>
+
+        <small>
+          ${escapeHTML(item.email || "Student")}
+        </small>
+
+        <small>
+          ${escapeHTML(item.paymentId || "Payment ID unavailable")}
+        </small>
+
+        <small>
+          ${formatDate(item.purchasedAt)}
+        </small>
+
+      </div>
+
+      <div>
+
+        <strong>
+          ${formatMoney(item.amountPaise)}
+        </strong>
+
+        <span class="status-pill">
+          ${escapeHTML(item.status)}
+        </span>
+
+      </div>
+
+    </div>
+  `).join("");
 }
 
-// ============================================================
-// AUTH STATE
-// ============================================================
+/* ==========================================
+   41. ADMIN STUDENTS
+========================================== */
 
-onAuthStateChanged(auth, async user => {
-  currentUser = user;
-  authResolved = true;
-  resolveAuthReady(user);
+async function loadAdminUsers() {
+  const result = await api("/admin/users");
 
-  setHidden("authPanel", Boolean(user));
+  const users = Array.isArray(result.users)
+    ? result.users
+    : [];
 
-  const status = $("accountStatus");
-  if (status) {
-    status.replaceChildren();
-    if (user) {
-      status.append(document.createTextNode(`Signed in: ${user.email || "User"} `));
-      const logoutButton = document.createElement("button");
-      logoutButton.id = "logoutBtn";
-      logoutButton.className = "navbtn";
-      logoutButton.textContent = "Sign out";
-      logoutButton.style.marginLeft = "8px";
-      logoutButton.addEventListener("click", async () => {
-        try {
-          await signOut(auth);
-          showView("store");
-          notice("आप sign out हो गए हैं।", "success");
-        } catch (error) {
-          notice(authError(error));
+  adminData.users = users;
+
+  adminData.totalStudents = Number(
+    result.totalStudents ?? users.length
+  );
+
+  renderAdminUsers(users);
+
+  setText(
+    "adminStudentCount",
+    adminData.totalStudents
+  );
+
+  updateAdminCounters();
+
+  return users;
+}
+
+function renderAdminUsers(users) {
+  const container = $("adminUsers");
+
+  if (!container) return;
+
+  if (!users.length) {
+    container.innerHTML = `
+      <p>No registered students found.</p>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = users.map(user => `
+    <div class="admin-list-row">
+
+      <div>
+
+        <strong>
+          ${escapeHTML(user.displayName || "Student")}
+        </strong>
+
+        <small>
+          ${escapeHTML(user.email || "")}
+        </small>
+
+        <small>
+          Joined: ${formatDate(user.createdAt)}
+        </small>
+
+        <small>
+          Purchases: ${Number(user.purchaseCount || 0)}
+        </small>
+
+      </div>
+
+      <div>
+
+        <span class="status-pill">
+          ${user.disabled ? "Disabled" : "Active"}
+        </span>
+
+        <small>
+          ${user.emailVerified ? "Email verified" : "Email not verified"}
+        </small>
+
+        <strong>
+          ${formatMoney(user.totalPaidPaise || 0)}
+        </strong>
+
+      </div>
+
+    </div>
+  `).join("");
+}
+
+/* ==========================================
+   42. ADMIN DASHBOARD COUNTERS
+========================================== */
+
+function isVerifiedPurchase(item) {
+  return String(
+    item?.status || ""
+  ).toLowerCase() === "active";
+}
+
+function getPurchaseAmountPaise(item) {
+  const amount = Number(
+    item?.amountPaise || 0
+  );
+
+  return Number.isFinite(amount)
+    ? amount
+    : 0;
+}
+
+function updateAdminCounters() {
+  const paid = adminData.purchases.filter(
+    isVerifiedPurchase
+  );
+
+  const revenue = paid.reduce(
+    (sum, item) =>
+      sum + getPurchaseAmountPaise(item),
+    0
+  );
+
+  setText(
+    "dashStudents",
+    adminData.totalStudents
+  );
+
+  setText(
+    "dashPurchases",
+    paid.length
+  );
+
+  setText(
+    "dashRevenue",
+    formatMoney(revenue)
+  );
+
+  setText(
+    "dashSeries",
+    adminData.series.length
+  );
+
+  setText(
+    "adminStudentCount",
+    adminData.totalStudents
+  );
+}
+
+/* ==========================================
+   43. CHART DATE HELPERS
+========================================== */
+
+function getPurchaseDate(item) {
+  const value =
+    item?.purchasedAt ??
+    item?.paidAt ??
+    item?.createdAt ??
+    item?.timestamp;
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  let date;
+
+  if (typeof value === "number") {
+    date = new Date(value);
+  } else if (/^\d+$/.test(String(value))) {
+    const number = Number(value);
+
+    date = new Date(
+      number < 1000000000000
+        ? number * 1000
+        : number
+    );
+  } else {
+    date = new Date(value);
+  }
+
+  return Number.isNaN(date.getTime())
+    ? null
+    : date;
+}
+
+/* ==========================================
+   44. ADMIN CHARTS
+========================================== */
+
+function renderAdminCharts(
+  purchases = [],
+  series = [],
+  papers = []
+) {
+  if (!window.Chart) return;
+
+  const paid = purchases.filter(
+    isVerifiedPurchase
+  );
+
+  const months = [];
+
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date();
+
+    date.setDate(1);
+
+    date.setMonth(
+      date.getMonth() - i
+    );
+
+    months.push({
+      key:
+        `${date.getFullYear()}-${String(
+          date.getMonth() + 1
+        ).padStart(2, "0")}`,
+
+      label: date.toLocaleString(
+        "en-IN",
+        {
+          month: "short",
+          year: "2-digit"
         }
-      });
-      status.append(logoutButton);
-    } else {
-      status.textContent = "Not signed in";
+      ),
+
+      count: 0,
+      revenue: 0
+    });
+  }
+
+  paid.forEach(item => {
+    const date = getPurchaseDate(item);
+
+    if (!date) return;
+
+    const key =
+      `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+
+    const month = months.find(
+      entry => entry.key === key
+    );
+
+    if (month) {
+      month.count++;
+
+      month.revenue +=
+        getPurchaseAmountPaise(item) / 100;
     }
+  });
+
+  const seriesTotals = series.map(item => {
+    const related = paid.filter(
+      purchase => purchase.seriesId === item.id
+    );
+
+    return {
+      label: item.title || "Series",
+      count: related.length
+    };
+  })
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 8);
+
+  const mcqCount = papers.filter(
+    paper => paper.type !== "pdf"
+  ).length;
+
+  const pdfCount = papers.filter(
+    paper => paper.type === "pdf"
+  ).length;
+
+  createAdminChart(
+    "revenueChart",
+    "line",
+    {
+      labels: months.map(
+        item => item.label
+      ),
+
+      datasets: [{
+        label: "Revenue (₹)",
+
+        data: months.map(
+          item => Math.round(item.revenue)
+        ),
+
+        tension: 0.35,
+        fill: true
+      }]
+    }
+  );
+
+  createAdminChart(
+    "purchaseChart",
+    "bar",
+    {
+      labels: months.map(
+        item => item.label
+      ),
+
+      datasets: [{
+        label: "Purchases",
+
+        data: months.map(
+          item => item.count
+        )
+      }]
+    }
+  );
+
+  createAdminChart(
+    "seriesChart",
+    "bar",
+    {
+      labels: seriesTotals.map(
+        item => item.label
+      ),
+
+      datasets: [{
+        label: "Paid Purchases",
+
+        data: seriesTotals.map(
+          item => item.count
+        )
+      }]
+    }
+  );
+
+  createAdminChart(
+    "contentChart",
+    "doughnut",
+    {
+      labels: [
+        "MCQ Papers",
+        "PDF Papers"
+      ],
+
+      datasets: [{
+        label: "Papers",
+
+        data: [
+          mcqCount,
+          pdfCount
+        ]
+      }]
+    }
+  );
+}
+
+function createAdminChart(
+  canvasId,
+  type,
+  data
+) {
+  const canvas = $(canvasId);
+
+  if (!canvas || !window.Chart) {
+    return;
   }
 
-  setHidden("adminNav", !user);
-
-  if (user) {
-    try { await user.getIdToken(); } catch (e) { console.error(e); }
-    if (!$("mineView")?.classList.contains("hidden")) await loadMine();
-    if (!$("adminView")?.classList.contains("hidden")) await loadAdmin();
+  if (adminCharts[canvasId]) {
+    adminCharts[canvasId].destroy();
   }
 
-  renderCatalogue();
-});
+  adminCharts[canvasId] = new window.Chart(
+    canvas,
+    {
+      type,
+      data,
 
-// ============================================================
-// START PAPER (MCQ)
-// ============================================================
+      options: {
+        responsive: true,
 
-window.startPaper = async function (paperId) {
+        maintainAspectRatio: false,
+
+        plugins: {
+          legend: {
+            display: type === "doughnut"
+          }
+        },
+
+        scales:
+          type === "doughnut"
+            ? {}
+            : {
+                y: {
+                  beginAtZero: true
+                }
+              }
+      }
+    }
+  );
+}
+
+/* ==========================================
+   45. START ONLINE MCQ TEST
+========================================== */
+
+async function startTest(paperId) {
+  if (!requireLogin()) return;
+
   try {
-    const response = await api(`/api/papers/${encodeURIComponent(paperId)}/questions`);
-    const paper = response.paper;
+    const result = await api(
+      `/papers/${encodeURIComponent(paperId)}/questions`
+    );
 
-    if (!paper || !Array.isArray(paper.questions) || !paper.questions.length) {
-      throw new Error("Paper या questions उपलब्ध नहीं हैं।");
+    const paper = result.paper || {};
+
+    const questions =
+      result.questions ||
+      paper.questions ||
+      [];
+
+    if (!questions.length) {
+      throw new Error(
+        "इस Test में Questions उपलब्ध नहीं हैं।"
+      );
     }
 
-    const root = document.querySelector("#app") || document.querySelector("main") || document.body;
-    let current = 0;
-    const answers = {};
+    currentPaper = paper;
 
-    function renderQuestion() {
-      const q = paper.questions[current];
-      root.innerHTML = `
-        <section class="panel" style="max-width:800px;margin:40px auto">
-          <h2>${escapeHtml(paper.title)}</h2>
-          <p class="muted">Class: ${escapeHtml(paper.className)} · Subject: ${escapeHtml(paper.subject)}</p>
-          <p><strong>Question ${current + 1} of ${paper.questions.length}</strong></p>
-          <h3 style="margin:20px 0">${escapeHtml(q.question)}</h3>
-          <div>
-            ${q.options.map((option, index) => `
-              <label style="display:block;padding:12px;margin:8px 0;border:1px solid #ccd5e5;border-radius:10px;cursor:pointer">
-                <input type="radio" name="answer" value="${index}" ${String(answers[q.id]) === String(index) ? "checked" : ""} style="margin-right:10px">
-                ${escapeHtml(option)}
-              </label>
-            `).join("")}
-          </div>
-          <div style="display:flex;gap:10px;margin-top:24px">
-            <button class="btn secondary" id="previousQuestion" ${current === 0 ? "disabled" : ""}>Previous</button>
-            <button class="btn" id="nextQuestion">${current === paper.questions.length - 1 ? "Finish" : "Next"}</button>
-          </div>
-        </section>
-      `;
+    currentTestQuestions = questions;
 
-      root.querySelectorAll('input[name="answer"]').forEach(input => {
-        input.addEventListener("change", () => { answers[q.id] = Number(input.value); });
-      });
+    testAnswers = {};
 
-      root.querySelector("#previousQuestion").onclick = () => {
-        if (current > 0) { current--; renderQuestion(); }
-      };
+    setText(
+      "testTitle",
+      paper.title || "Online Test"
+    );
 
-      root.querySelector("#nextQuestion").onclick = () => {
-        if (current < paper.questions.length - 1) {
-          current++;
-          renderQuestion();
-        } else {
-          root.innerHTML = `
-            <section class="panel" style="max-width:800px;margin:40px auto;text-align:center">
-              <h2>Test Completed</h2>
-              <p>आपने ${Object.keys(answers).length} में से ${paper.questions.length} questions attempt किए।</p>
-              <p class="muted">Secure answer checking API अभी available नहीं है।</p>
-              <button class="btn" id="backToPapers" style="margin-top:20px">Back</button>
-            </section>
-          `;
-          root.querySelector("#backToPapers").onclick = () => location.reload();
-        }
-      };
-    }
+    setText(
+      "testQuestionCount",
+      questions.length
+    );
 
-    renderQuestion();
+    setText(
+      "testDuration",
+      `${paper.durationMinutes || 60} Minutes`
+    );
+
+    setText(
+      "testInstructions",
+      paper.instructions || "सभी प्रश्नों का उत्तर दें।"
+    );
+
+    testSecondsLeft = Math.max(
+      1,
+      Number(paper.durationMinutes || 60) * 60
+    );
+
+    renderTestQuestions(questions);
+
+    updateTestTimer();
+
+    startTestTimer();
+
+    $("testResult")?.classList.add("hidden");
+
+    $("submitTestBtn")?.classList.remove("hidden");
+
+    showView("test");
+
   } catch (error) {
-    alert(error.message || "Questions load नहीं हो सके।");
-    console.error("Start test error:", error);
+    showNotice(error.message, "error");
   }
-};
-
-// ============================================================
-// INIT
-// ============================================================
-
-setText("year", new Date().getFullYear());
-if ($("paperQuestions") && !$("paperQuestions").querySelector("[data-question-card]")) {
-  // empty state already set in HTML
 }
-loadCatalogue();
+
+/* ==========================================
+   46. RENDER TEST QUESTIONS
+========================================== */
+
+function renderTestQuestions(questions) {
+  const container = $("testQuestions");
+
+  if (!container) return;
+
+  container.innerHTML = questions.map(
+    (question, index) => `
+      <article class="test-question">
+
+        <h3>
+          Q${index + 1}.
+          ${escapeHTML(question.question)}
+        </h3>
+
+        <div class="test-options">
+
+          ${(question.options || []).map(
+            (option, optionIndex) => `
+              <label class="test-option">
+
+                <input
+                  type="radio"
+                  name="question-${index}"
+                  value="${optionIndex}"
+                  data-question-index="${index}"
+                >
+
+                <span>
+                  ${escapeHTML(option)}
+                </span>
+
+              </label>
+            `
+          ).join("")}
+
+        </div>
+
+      </article>
+    `
+  ).join("");
+
+  container.querySelectorAll(
+    'input[type="radio"]'
+  ).forEach(input => {
+    input.addEventListener("change", () => {
+      testAnswers[
+        Number(input.dataset.questionIndex)
+      ] = Number(input.value);
+    });
+  });
+}
+
+/* ==========================================
+   47. TEST TIMER
+========================================== */
+
+function updateTestTimer() {
+  const minutes = Math.floor(
+    testSecondsLeft / 60
+  );
+
+  const seconds =
+    testSecondsLeft % 60;
+
+  setText(
+    "testTimer",
+    `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+  );
+}
+
+function startTestTimer() {
+  stopTestTimer();
+
+  testTimerInterval = setInterval(() => {
+    testSecondsLeft--;
+
+    updateTestTimer();
+
+    if (testSecondsLeft <= 0) {
+      stopTestTimer();
+
+      submitTest(true);
+    }
+  }, 1000);
+}
+
+function stopTestTimer() {
+  if (testTimerInterval) {
+    clearInterval(testTimerInterval);
+
+    testTimerInterval = null;
+  }
+}
+
+/* ==========================================
+   48. SUBMIT ONLINE TEST
+========================================== */
+
+async function submitTest(autoSubmit = false) {
+  if (!currentPaper) return;
+
+  if (
+    !autoSubmit &&
+    !confirm("क्या आप Test Submit करना चाहते हैं?")
+  ) {
+    return;
+  }
+
+  stopTestTimer();
+
+  const answers = Object.entries(
+    testAnswers
+  ).map(([index, answer]) => ({
+    questionIndex: Number(index),
+    answer: Number(answer)
+  }));
+
+  try {
+    setButtonLoading(
+      $("submitTestBtn"),
+      true,
+      "Submitting..."
+    );
+
+    const result = await api(
+      `/papers/${encodeURIComponent(currentPaper.id)}/submit`,
+      {
+        method: "POST",
+
+        body: jsonBody({
+          answers
+        })
+      }
+    );
+
+    setText(
+      "testResultMessage",
+      result.message || "Test submitted."
+    );
+
+    setText(
+      "testResultDetails",
+
+      `Score: ${result.score} / ${result.totalMarks} · Correct: ${result.correct} · Attempted: ${result.attempted} / ${result.totalQuestions}`
+    );
+
+    $("testResult")?.classList.remove("hidden");
+
+    $("submitTestBtn")?.classList.add("hidden");
+
+    showNotice(
+      autoSubmit
+        ? "समय समाप्त! Test submit हो गया।"
+        : "Test submitted successfully."
+    );
+
+  } catch (error) {
+    showNotice(error.message, "error");
+
+    startTestTimer();
+
+  } finally {
+    setButtonLoading(
+      $("submitTestBtn"),
+      false
+    );
+  }
+}
+
+/* ==========================================
+   49. EXIT TEST
+========================================== */
+
+function exitTest() {
+  if (
+    !confirm(
+      "Test से बाहर निकलना चाहते हैं? आपका current attempt submit नहीं होगा।"
+    )
+  ) {
+    return;
+  }
+
+  stopTestTimer();
+
+  currentPaper = null;
+
+  currentTestQuestions = [];
+
+  testAnswers = {};
+
+  $("testResult")?.classList.add("hidden");
+
+  $("submitTestBtn")?.classList.remove("hidden");
+
+  showView("mine");
+}
+
+/* ==========================================
+   50. EVENT LISTENERS
+========================================== */
+
+function bindEvents() {
+
+  // Authentication
+
+  $("loginBtn")?.addEventListener(
+    "click",
+    login
+  );
+
+  $("signupBtn")?.addEventListener(
+    "click",
+    signup
+  );
+
+  $("resetBtn")?.addEventListener(
+    "click",
+    resetPassword
+  );
+
+  $("logoutBtn")?.addEventListener(
+    "click",
+    logout
+  );
+
+  // Store
+
+  $("refreshStore")?.addEventListener(
+    "click",
+    loadStore
+  );
+
+  $("search")?.addEventListener(
+    "input",
+    renderStore
+  );
+
+  $("classFilter")?.addEventListener(
+    "change",
+    renderStore
+  );
+
+  // My Series
+
+  $("refreshMine")?.addEventListener(
+    "click",
+    loadMySeries
+  );
+
+  $("backToMine")?.addEventListener(
+    "click",
+    () => {
+      $("paperPanel")?.classList.add("hidden");
+
+      showView("mine");
+    }
+  );
+
+  // Profile
+
+  $("refreshProfile")?.addEventListener(
+    "click",
+    loadProfile
+  );
+
+  $("profileForm")?.addEventListener(
+    "submit",
+    saveProfile
+  );
+
+  $("refreshPaymentHistory")?.addEventListener(
+    "click",
+    loadMyPurchases
+  );
+
+  // Admin
+
+  $("loadAdmin")?.addEventListener(
+    "click",
+    loadAdmin
+  );
+
+  $("seriesForm")?.addEventListener(
+    "submit",
+    saveAdminSeries
+  );
+
+  $("clearForm")?.addEventListener(
+    "click",
+    () => {
+      $("seriesForm")?.reset();
+
+      if ($("seriesId")) {
+        $("seriesId").value = "";
+      }
+
+      setText(
+        "formHeading",
+        "Add Test Series"
+      );
+    }
+  );
+
+  // MCQ
+
+  $("paperForm")?.addEventListener(
+    "submit",
+    saveMCQPaper
+  );
+
+  $("addPaperQuestion")?.addEventListener(
+    "click",
+    () => addQuestionEditor()
+  );
+
+  $("clearPaperForm")?.addEventListener(
+    "click",
+    clearMCQForm
+  );
+
+  // PDF
+
+  $("pdfPaperForm")?.addEventListener(
+    "submit",
+    uploadPDFPaper
+  );
+
+  $("clearPdfPaperBtn")?.addEventListener(
+    "click",
+    clearPDFForm
+  );
+
+  $("pdfPaperFile")?.addEventListener(
+    "change",
+    event => {
+      const file = event.target.files?.[0];
+
+      setText(
+        "selectedPdfName",
+        file?.name || "No file selected"
+      );
+    }
+  );
+
+  // Admin refresh
+
+  $("refreshPapers")?.addEventListener(
+    "click",
+    loadAdminPapers
+  );
+
+  $("refreshAdminUsers")?.addEventListener(
+    "click",
+    loadAdminUsers
+  );
+
+  // Test
+
+  $("submitTestBtn")?.addEventListener(
+    "click",
+    () => submitTest(false)
+  );
+
+  $("exitTestBtn")?.addEventListener(
+    "click",
+    exitTest
+  );
+
+  $("testResultBack")?.addEventListener(
+    "click",
+    () => {
+      $("testResult")?.classList.add("hidden");
+
+      $("submitTestBtn")?.classList.remove("hidden");
+
+      showView("mine");
+    }
+  );
+
+  // Navigation
+
+  document.querySelectorAll("[data-view]").forEach(button => {
+
+    button.addEventListener("click", () => {
+
+      const view = button.dataset.view;
+
+      if (
+        view === "admin" &&
+        !requireAdmin()
+      ) {
+        return;
+      }
+
+      if (
+        view !== "admin" &&
+        view !== "store" &&
+        !requireLogin()
+      ) {
+        return;
+      }
+
+      showView(view);
+    });
+
+  });
+
+}
+
+/* ==========================================
+   51. INITIALIZATION
+========================================== */
+
+bindEvents();
+
+if (
+  $("paperQuestions") &&
+  !$("paperQuestions").children.length
+) {
+  addQuestionEditor();
+}
+
+showView("store");
+
+console.log(
+  "BIHAR ACADEMIC BATTLE app.js loaded successfully."
+);

@@ -1,4 +1,6 @@
+// server.js
 import "dotenv/config";
+
 import express from "express";
 import crypto from "node:crypto";
 import admin from "firebase-admin";
@@ -9,19 +11,15 @@ import fs from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
-import {
-  initializeApp,
-  cert,
-  getApps
-} from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import {
-  getDatabase,
-  ServerValue
-} from "firebase-admin/database";
+/* =========================================
+   1. INITIAL CONFIGURATION
+========================================= */
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
+
 const PORT = Number(process.env.PORT || 5000);
 
 const DB_URL =
@@ -29,1114 +27,3264 @@ const DB_URL =
   "https://babbihar-23fcc-default-rtdb.firebaseio.com/";
 
 const STORAGE_DIR = path.resolve(
-  process.env.PAPER_STORAGE_DIR || "./private-paper-uploads"
+  process.env.STORAGE_DIR ||
+  path.join(__dirname, "private-paper-uploads")
 );
 
+const PUBLIC_DIR = path.join(__dirname, "public");
+
 const ADMIN_UIDS = new Set(
-  (process.env.ADMIN_UIDS || "")
+  String(process.env.ADMIN_UIDS || "")
     .split(",")
-    .map(value => value.trim())
+    .map(uid => uid.trim())
     .filter(Boolean)
 );
 
-app.disable("x-powered-by");
-app.set("trust proxy", 1);
+fs.mkdirSync(STORAGE_DIR, {
+  recursive: true
+});
 
-fs.mkdirSync(STORAGE_DIR, { recursive: true });
+/* =========================================
+   2. FIREBASE ADMIN INITIALIZATION
+========================================= */
 
-/* ---------- Firebase initialization ---------- */
+function loadServiceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-  throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON in .env");
+  if (!raw) {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_JSON environment variable missing."
+    );
+  }
+
+  let serviceAccount;
+
+  try {
+    serviceAccount = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON."
+    );
+  }
+
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key =
+      serviceAccount.private_key.replace(/\\n/g, "\n");
+  }
+
+  return serviceAccount;
 }
 
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-} catch {
-  throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON");
-}
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(
+      loadServiceAccount()
+    ),
 
-if (
-  serviceAccount.project_id !== "babbihar-23fcc" ||
-  !serviceAccount.private_key ||
-  !serviceAccount.client_email
-) {
-  throw new Error("Service account must belong to Firebase project babbihar-23fcc");
-}
-
-if (getApps().length === 0) {
-  initializeApp({
-    credential: cert(serviceAccount),
     databaseURL: DB_URL
   });
 }
 
-const db = getDatabase();
-const auth = getAuth();
+const db = admin.database();
 
-/* ---------- Razorpay ---------- */
+/* =========================================
+   3. RAZORPAY INITIALIZATION
+========================================= */
+
+const RAZORPAY_KEY_ID =
+  process.env.RAZORPAY_KEY_ID || "";
+
+const RAZORPAY_KEY_SECRET =
+  process.env.RAZORPAY_KEY_SECRET || "";
 
 let razorpay = null;
-if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+
+if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
   razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET
+    key_id: RAZORPAY_KEY_ID,
+    key_secret: RAZORPAY_KEY_SECRET
+  });
+} else {
+  console.warn(
+    "WARNING: Razorpay credentials are not configured."
+  );
+}
+
+/* =========================================
+   4. EXPRESS MIDDLEWARE
+========================================= */
+
+app.disable("x-powered-by");
+
+app.use(express.json({
+  limit: "2mb"
+}));
+
+app.use(express.urlencoded({
+  extended: true,
+  limit: "2mb"
+}));
+
+app.use(express.static(PUBLIC_DIR));
+
+/* =========================================
+   5. COMMON HELPERS
+========================================= */
+
+function sendError(res, status, message) {
+  return res.status(status).json({
+    ok: false,
+    error: message
   });
 }
 
-/* ---------- Security headers ---------- */
+function makeId(prefix = "item") {
+  return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
+}
 
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  next();
-});
+function cleanString(value, maxLength = 500) {
+  return String(value ?? "")
+    .trim()
+    .slice(0, maxLength);
+}
 
-/* ---------- Helpers ---------- */
+function safeNumber(value, fallback = 0) {
+  const number = Number(value);
 
-const text = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+  return Number.isFinite(number)
+    ? number
+    : fallback;
+}
 
-const validId = value =>
-  typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value);
-
-function safeFilename(name) {
-  return path.basename(String(name || "paper.pdf"))
-    .replace(/[\r\n"]/g, "_")
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .slice(0, 120) || "paper.pdf";
+function isValidId(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 180 &&
+    !/[.#$\[\]/]/.test(value)
+  );
 }
 
 function safeSeries(item, id) {
+  if (!item) return null;
+
   return {
     id,
-    title: text(item.title, 150),
-    description: text(item.description, 2000),
-    className: text(item.className, 40),
-    subject: text(item.subject, 80),
-    pricePaise: Number(item.pricePaise || 0),
-    testCount: Number(item.testCount || 0),
-    active: item.active === true,
-    createdAt: item.createdAt || null
+
+    title: cleanString(item.title, 200),
+
+    description: cleanString(
+      item.description,
+      3000
+    ),
+
+    className: cleanString(
+      item.className,
+      100
+    ),
+
+    subject: cleanString(
+      item.subject,
+      150
+    ),
+
+    pricePaise: safeNumber(
+      item.pricePaise
+    ),
+
+    testCount: safeNumber(
+      item.testCount
+    ),
+
+    active: item.active !== false,
+
+    createdAt: item.createdAt || null,
+
+    updatedAt: item.updatedAt || null
   };
 }
 
-function safeEqualHex(a, b) {
-  try {
-    const x = Buffer.from(String(a), "hex");
-    const y = Buffer.from(String(b), "hex");
-    return x.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y);
-  } catch {
-    return false;
+function safePaper(item, id) {
+  if (!item) return null;
+
+  return {
+    id,
+
+    title: cleanString(
+      item.title,
+      200
+    ),
+
+    className: cleanString(
+      item.className,
+      100
+    ),
+
+    subject: cleanString(
+      item.subject,
+      150
+    ),
+
+    seriesId: cleanString(
+      item.seriesId,
+      180
+    ),
+
+    durationMinutes: safeNumber(
+      item.durationMinutes,
+      60
+    ),
+
+    marksPerQuestion: safeNumber(
+      item.marksPerQuestion,
+      1
+    ),
+
+    instructions: cleanString(
+      item.instructions,
+      5000
+    ),
+
+    type: item.type === "pdf"
+      ? "pdf"
+      : "mcq",
+
+    status: item.status || "draft",
+
+    questionCount: Array.isArray(item.questions)
+      ? item.questions.length
+      : safeNumber(item.questionCount),
+
+    pdf: item.pdf || null,
+
+    createdAt: item.createdAt || null,
+
+    updatedAt: item.updatedAt || null
+  };
+}
+
+function getRupees(pricePaise) {
+  return safeNumber(pricePaise) / 100;
+}
+
+function getNow() {
+  return Date.now();
+}
+
+function safeFilePath(paperId) {
+  if (!isValidId(paperId)) {
+    throw new Error("Invalid paper ID.");
   }
+
+  return path.join(
+    STORAGE_DIR,
+    `${paperId}.pdf`
+  );
 }
 
-function normalizeField(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^class\s*/, "")
-    .replace(/\s+/g, " ");
-}
+/* =========================================
+   6. FIREBASE AUTHENTICATION MIDDLEWARE
+========================================= */
 
-async function requireUser(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
-    const match = (req.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+    const header =
+      req.headers.authorization || "";
+
+    const match = header.match(/^Bearer\s+(.+)$/i);
+
     if (!match) {
-      return res.status(401).json({ error: "Please sign in first." });
+      return sendError(
+        res,
+        401,
+        "Authentication required."
+      );
     }
-    req.user = await auth.verifyIdToken(match[1], true);
-    return next();
-  } catch {
-    return res.status(401).json({ error: "Your session is invalid or expired." });
+
+    const decoded = await admin.auth().verifyIdToken(
+      match[1]
+    );
+
+    req.user = decoded;
+
+    next();
+
+  } catch (error) {
+    console.error(
+      "Authentication error:",
+      error.message
+    );
+
+    return sendError(
+      res,
+      401,
+      "Invalid or expired login session."
+    );
   }
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.user || !ADMIN_UIDS.has(req.user.uid)) {
-    return res.status(403).json({ error: "Admin access denied." });
+  if (!req.user?.uid) {
+    return sendError(
+      res,
+      401,
+      "Authentication required."
+    );
   }
+
+  if (!ADMIN_UIDS.has(req.user.uid)) {
+    return sendError(
+      res,
+      403,
+      "Admin access denied."
+    );
+  }
+
   next();
 }
 
-async function getSeries(id) {
-  if (!validId(id)) return null;
-  const snap = await db.ref(`testSeries/${id}`).get();
-  return snap.exists() ? safeSeries(snap.val(), id) : null;
-}
+function requireRazorpay(res) {
+  if (!razorpay) {
+    sendError(
+      res,
+      503,
+      "Payment gateway is not configured."
+    );
 
-async function ownsSeries(uid, id) {
-  const snap = await db.ref(`purchases/${uid}/${id}`).get();
-  return snap.val()?.status === "active";
-}
-
-async function grantPurchase({ uid, seriesId, orderId, paymentId, amount, currency }) {
-  const series = await getSeries(seriesId);
-  if (!series || !series.active) throw new Error("Series unavailable");
-  if (Number(amount) !== series.pricePaise || currency !== "INR") {
-    throw new Error("Payment amount mismatch");
+    return false;
   }
 
-  await db.ref(`purchases/${uid}/${seriesId}`).transaction(current => {
-    if (current?.status === "active") return current;
+  return true;
+}
+
+/* =========================================
+   7. DATABASE HELPERS
+========================================= */
+
+async function getSeries(seriesId) {
+  const snapshot = await db
+    .ref(`testSeries/${seriesId}`)
+    .get();
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  return snapshot.val();
+}
+
+async function getPaper(paperId) {
+  const snapshot = await db
+    .ref(`questionPapers/${paperId}`)
+    .get();
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  return snapshot.val();
+}
+
+async function hasPaperAccess(uid, seriesId) {
+  if (!uid || !seriesId) return false;
+
+  const snapshot = await db
+    .ref(`purchases/${uid}/${seriesId}`)
+    .get();
+
+  if (!snapshot.exists()) return false;
+
+  return snapshot.val()?.status === "active";
+}
+
+async function getPurchasedSeries(uid) {
+  const snapshot = await db
+    .ref(`purchases/${uid}`)
+    .get();
+
+  return snapshot.exists()
+    ? snapshot.val()
+    : {};
+}
+
+async function grantPurchase({
+  uid,
+  seriesId,
+  paymentId,
+  orderId,
+  amountPaise
+}) {
+  const series = await getSeries(seriesId);
+
+  if (!series || series.active === false) {
+    throw new Error(
+      "This Test Series is not available."
+    );
+  }
+
+  const expectedAmount = safeNumber(
+    series.pricePaise
+  );
+
+  if (
+    expectedAmount !== safeNumber(amountPaise)
+  ) {
+    throw new Error(
+      "Payment amount does not match the Test Series price."
+    );
+  }
+
+  const purchaseRef = db.ref(
+    `purchases/${uid}/${seriesId}`
+  );
+
+  const existing = await purchaseRef.get();
+
+  if (
+    existing.exists() &&
+    existing.val()?.status === "active"
+  ) {
+    return existing.val();
+  }
+
+  const purchase = {
+    status: "active",
+
+    amountPaise: expectedAmount,
+
+    currency: "INR",
+
+    paymentId,
+
+    orderId,
+
+    purchasedAt: getNow()
+  };
+
+  await purchaseRef.set(purchase);
+
+  return purchase;
+}
+
+/* =========================================
+   8. PROFILE HELPERS
+========================================= */
+
+async function getProfileData(uid) {
+  const user = await admin.auth().getUser(uid);
+
+  const profileSnapshot = await db
+    .ref(`studentProfiles/${uid}`)
+    .get();
+
+  const profile = profileSnapshot.exists()
+    ? profileSnapshot.val()
+    : {};
+
+  const purchases = await getPurchasedSeries(uid);
+
+  const activePurchases = Object.values(
+    purchases
+  ).filter(item =>
+    item?.status === "active"
+  );
+
+  const totalPaidPaise = activePurchases.reduce(
+    (sum, item) =>
+      sum + safeNumber(item.amountPaise),
+    0
+  );
+
+  return {
+    uid,
+
+    displayName:
+      profile.displayName ||
+      user.displayName ||
+      "",
+
+    email:
+      user.email || "",
+
+    photoURL:
+      profile.photoURL ||
+      user.photoURL ||
+      "",
+
+    emailVerified:
+      Boolean(user.emailVerified),
+
+    disabled:
+      Boolean(user.disabled),
+
+    createdAt:
+      user.metadata?.creationTime || null,
+
+    lastSignInAt:
+      user.metadata?.lastSignInTime || null,
+
+    purchaseCount:
+      activePurchases.length,
+
+    totalPaidPaise
+  };
+}
+
+/* =========================================
+   9. SERIES BODY VALIDATION
+========================================= */
+
+function normalizeSeriesBody(body = {}) {
+  const title = cleanString(body.title, 200);
+
+  const description = cleanString(
+    body.description,
+    3000
+  );
+
+  const className = cleanString(
+    body.className,
+    100
+  );
+
+  const subject = cleanString(
+    body.subject,
+    150
+  );
+
+  let pricePaise;
+
+  if (body.pricePaise !== undefined) {
+    pricePaise = safeNumber(body.pricePaise, -1);
+  } else if (body.priceRupees !== undefined) {
+    pricePaise = Math.round(
+      safeNumber(body.priceRupees, -1) * 100
+    );
+  } else {
+    pricePaise = Math.round(
+      safeNumber(body.price, -1) * 100
+    );
+  }
+
+  const testCount = Math.floor(
+    safeNumber(body.testCount, 0)
+  );
+
+  const active =
+    body.active === undefined
+      ? true
+      : body.active === true;
+
+  if (!title) {
+    throw new Error("Series title is required.");
+  }
+
+  if (!className) {
+    throw new Error("Class is required.");
+  }
+
+  if (!subject) {
+    throw new Error("Subject is required.");
+  }
+
+  if (
+    !Number.isInteger(pricePaise) ||
+    pricePaise < 0
+  ) {
+    throw new Error("Invalid series price.");
+  }
+
+  if (testCount < 0 || testCount > 10000) {
+    throw new Error("Invalid test count.");
+  }
+
+  return {
+    title,
+    description,
+    className,
+    subject,
+    pricePaise,
+    testCount,
+    active
+  };
+}
+
+/* =========================================
+   10. MCQ QUESTION VALIDATION
+========================================= */
+
+function normalizeQuestions(input) {
+  if (!Array.isArray(input)) {
+    throw new Error("Questions must be an array.");
+  }
+
+  if (input.length < 1 || input.length > 500) {
+    throw new Error(
+      "A paper must contain between 1 and 500 questions."
+    );
+  }
+
+  return input.map((item, index) => {
+    const question = cleanString(
+      item.question,
+      5000
+    );
+
+    const options = Array.isArray(item.options)
+      ? item.options.map(option =>
+          cleanString(option, 1000)
+        )
+      : [];
+
+    const correctIndex = Number(
+      item.correctIndex
+    );
+
+    if (!question) {
+      throw new Error(
+        `Question ${index + 1} is empty.`
+      );
+    }
+
+    if (
+      options.length !== 4 ||
+      options.some(option => !option)
+    ) {
+      throw new Error(
+        `Question ${index + 1} must have four options.`
+      );
+    }
+
+    if (
+      !Number.isInteger(correctIndex) ||
+      correctIndex < 0 ||
+      correctIndex > 3
+    ) {
+      throw new Error(
+        `Question ${index + 1} has an invalid correct answer.`
+      );
+    }
+
     return {
-      seriesId,
-      status: "active",
-      orderId,
-      paymentId,
-      amountPaise: Number(amount),
-      currency: "INR",
-      purchasedAt: ServerValue.TIMESTAMP
+      id: cleanString(
+        item.id,
+        100
+      ) || makeId("q"),
+
+      question,
+
+      options,
+
+      correctIndex,
+
+      explanation: cleanString(
+        item.explanation,
+        3000
+      )
     };
   });
 }
 
-/* ---------- Private PDF storage ---------- */
+/* =========================================
+   11. PUBLIC TEST SERIES
+========================================= */
 
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, callback) => callback(null, STORAGE_DIR),
-    filename: (_req, _file, callback) => {
-      callback(null, `${Date.now()}_${crypto.randomBytes(16).toString("hex")}.pdf`);
-    }
-  }),
-  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, callback) => {
-    if (file.mimetype !== "application/pdf" || !file.originalname.toLowerCase().endsWith(".pdf")) {
-      return callback(new Error("Only PDF files are allowed."));
-    }
-    callback(null, true);
+app.get("/api/series", async (req, res) => {
+  try {
+    const snapshot = await db
+      .ref("testSeries")
+      .get();
+
+    const data = snapshot.exists()
+      ? snapshot.val()
+      : {};
+
+    const series = Object.entries(data)
+      .map(([id, item]) =>
+        safeSeries(item, id)
+      )
+      .filter(item =>
+        item && item.active !== false
+      );
+
+    res.json({
+      ok: true,
+      series,
+
+      razorpayKeyId:
+        RAZORPAY_KEY_ID || null
+    });
+
+  } catch (error) {
+    console.error("Series error:", error);
+
+    sendError(
+      res,
+      500,
+      "Unable to load Test Series."
+    );
   }
 });
 
-function handleUpload(req, res, next) {
-  upload.single("pdf")(req, res, error => {
-    if (!error) return next();
-    return res.status(400).json({
-      error: error.code === "LIMIT_FILE_SIZE"
-        ? "PDF must be 10 MB or smaller."
-        : error.message || "PDF upload failed."
-    });
-  });
-}
+/* =========================================
+   12. STUDENT PROFILE
+========================================= */
 
-async function removeLocalFile(filename) {
-  if (!filename || path.basename(filename) !== filename) return;
-  try {
-    await fs.promises.unlink(path.join(STORAGE_DIR, filename));
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-}
-
-function resolveStoredPdf(pdf) {
-  if (!pdf?.diskName) return null;
-  if (!/^\d+_[a-f0-9]{32}\.pdf$/.test(pdf.diskName)) return null;
-  const fullPath = path.resolve(STORAGE_DIR, pdf.diskName);
-  if (path.dirname(fullPath) !== STORAGE_DIR) return null;
-  return fullPath;
-}
-
-async function streamPaperPdf(req, res, adminPreview = false) {
-  const id = req.params.id;
-  if (!validId(id)) return res.status(400).json({ error: "Invalid paper ID." });
-
-  const snap = await db.ref(`questionPapers/${id}`).get();
-  const paper = snap.val();
-  if (!paper) return res.status(404).json({ error: "Paper not found." });
-
-  if (!adminPreview && paper.status !== "published") {
-    return res.status(404).json({ error: "Published PDF not found." });
-  }
-
-  const fullPath = resolveStoredPdf(paper.pdf);
-  if (!fullPath) {
-    return res.status(404).json({ error: "PDF file record is missing or invalid." });
-  }
-
-  try {
-    await fs.promises.access(fullPath, fs.constants.R_OK);
-  } catch {
-    return res.status(404).json({ error: "PDF file is missing from server storage." });
-  }
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${safeFilename(paper.pdf.fileName)}"`);
-  res.setHeader("Cache-Control", "private, no-store");
-  await pipeline(fs.createReadStream(fullPath), res);
-}
-
-/* ---------- Razorpay webhook ---------- */
-
-app.post(
-  "/api/razorpay/webhook",
-  express.raw({ type: "application/json", limit: "1mb" }),
+app.get(
+  "/api/profile",
+  requireAuth,
   async (req, res) => {
     try {
-      const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-      const signature = req.get("x-razorpay-signature");
+      const profile = await getProfileData(
+        req.user.uid
+      );
 
-      if (!secret || !signature || !Buffer.isBuffer(req.body)) {
-        return res.status(400).send("Webhook not configured.");
-      }
+      res.json({
+        ok: true,
+        ...profile
+      });
 
-      const expected = crypto.createHmac("sha256", secret).update(req.body).digest("hex");
-      if (!safeEqualHex(expected, signature)) {
-        return res.status(400).send("Invalid webhook signature.");
-      }
-
-      const event = JSON.parse(req.body.toString("utf8"));
-
-      if (event.event === "payment.captured" || event.event === "order.paid") {
-        const payment = event.payload?.payment?.entity;
-        const order = event.payload?.order?.entity;
-        const orderId = payment?.order_id || order?.id;
-
-        if (orderId && payment?.status === "captured") {
-          const saved = (await db.ref(`paymentOrders/${orderId}`).get()).val();
-          if (
-            saved?.uid &&
-            saved?.seriesId &&
-            Number(payment.amount) === Number(saved.amountPaise) &&
-            payment.currency === saved.currency
-          ) {
-            await grantPurchase({
-              uid: saved.uid,
-              seriesId: saved.seriesId,
-              orderId,
-              paymentId: payment.id,
-              amount: payment.amount,
-              currency: payment.currency
-            });
-            await db.ref(`paymentOrders/${orderId}`).update({
-              status: "paid",
-              paymentId: payment.id,
-              paidAt: ServerValue.TIMESTAMP
-            });
-          }
-        }
-      }
-      return res.json({ received: true });
     } catch (error) {
-      console.error("Razorpay webhook:", error.message);
-      return res.status(500).send("Webhook processing failed.");
+      console.error("Profile error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load profile."
+      );
     }
   }
 );
 
-app.use(express.json({ limit: "1mb" }));
-app.use(express.static(path.join(__dirname, "public"), { etag: true, maxAge: "1h" }));
-
-/* ---------- Health ---------- */
-
-app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    app: "Bihar Academic Battle Test Series",
-    storage: "private-local-disk",
-    time: new Date().toISOString()
-  });
-});
-
-/* ---------- Public series ---------- */
-
-app.get("/api/series", async (_req, res) => {
-  try {
-    const snap = await db.ref("testSeries").get();
-    const series = Object.entries(snap.val() || {})
-      .map(([id, item]) => safeSeries(item, id))
-      .filter(item => item.active)
-      .sort((a, b) => a.pricePaise - b.pricePaise);
-
-    res.json({
-      series,
-      razorpayKeyId: process.env.RAZORPAY_KEY_ID || ""
-    });
-  } catch (error) {
-    console.error("Load series:", error.message);
-    res.status(500).json({ error: "Could not load test series." });
-  }
-});
-
-/* ---------- Student purchases ---------- */
-
-app.get("/api/my-series", requireUser, async (req, res) => {
-  try {
-    const snap = await db.ref(`purchases/${req.user.uid}`).get();
-    const purchases = snap.val() || {};
-    const seriesList = [];
-
-    for (const [seriesId, purchase] of Object.entries(purchases)) {
-      if (purchase?.status !== "active") continue;
-      const series = await getSeries(seriesId);
-      if (!series) continue;
-
-      seriesList.push({
-        ...series,
-        purchase: {
-          status: purchase.status,
-          purchasedAt: purchase.purchasedAt ?? null,
-          paymentId: purchase.paymentId ?? null,
-          amountPaise: Number(purchase.amountPaise || 0),
-          currency: purchase.currency || "INR"
-        }
-      });
-    }
-
-    res.json({ ok: true, series: seriesList, purchases: seriesList });
-  } catch (error) {
-    console.error("My series:", error.message);
-    res.status(500).json({ ok: false, error: "Could not load purchases." });
-  }
-});
-
-/* ---------- Create Razorpay order ---------- */
-
-app.post("/api/create-order", requireUser, async (req, res) => {
-  try {
-    if (!razorpay) return res.status(503).json({ error: "Razorpay is not configured." });
-
-    const seriesId = text(req.body?.seriesId, 100);
-    if (!validId(seriesId)) return res.status(400).json({ error: "Invalid series." });
-
-    const series = await getSeries(seriesId);
-    if (!series || !series.active) return res.status(404).json({ error: "Series unavailable." });
-
-    if (!Number.isSafeInteger(series.pricePaise) || series.pricePaise < 100) {
-      return res.status(400).json({ error: "Invalid series price." });
-    }
-
-    if (await ownsSeries(req.user.uid, seriesId)) {
-      return res.status(409).json({ error: "Already purchased." });
-    }
-
-    const order = await razorpay.orders.create({
-      amount: series.pricePaise,
-      currency: "INR",
-      receipt: `bab_${crypto.randomBytes(12).toString("hex")}`.slice(0, 40),
-      notes: { firebaseUid: req.user.uid, seriesId }
-    });
-
-    await db.ref(`paymentOrders/${order.id}`).set({
-      uid: req.user.uid,
-      seriesId,
-      amountPaise: series.pricePaise,
-      currency: "INR",
-      status: "created",
-      createdAt: ServerValue.TIMESTAMP
-    });
-
-    res.json({
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      keyId: process.env.RAZORPAY_KEY_ID,
-      name: "Bihar Academic Battle",
-      description: series.title
-    });
-  } catch (error) {
-    console.error("Create order:", error.message);
-    res.status(500).json({ error: "Could not create payment order." });
-  }
-});
-
-/* ---------- Verify Razorpay payment ---------- */
-
-app.post("/api/verify-payment", requireUser, async (req, res) => {
-  try {
-    if (!razorpay) return res.status(503).json({ error: "Razorpay is not configured." });
-
-    const {
-      razorpay_order_id: orderId,
-      razorpay_payment_id: paymentId,
-      razorpay_signature: signature
-    } = req.body || {};
-
-    if (![orderId, paymentId, signature].every(v => typeof v === "string" && v.length > 0 && v.length < 300)) {
-      return res.status(400).json({ error: "Missing payment details." });
-    }
-
-    const saved = (await db.ref(`paymentOrders/${orderId}`).get()).val();
-    if (!saved || saved.uid !== req.user.uid) {
-      return res.status(403).json({ error: "Order ownership mismatch." });
-    }
-
-    const expected = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(`${orderId}|${paymentId}`)
-      .digest("hex");
-
-    if (!safeEqualHex(expected, signature)) {
-      return res.status(400).json({ error: "Invalid payment signature." });
-    }
-
-    const [order, payment] = await Promise.all([
-      razorpay.orders.fetch(orderId),
-      razorpay.payments.fetch(paymentId)
-    ]);
-
-    if (
-      payment.order_id !== orderId ||
-      order.id !== orderId ||
-      payment.status !== "captured" ||
-      order.status !== "paid" ||
-      Number(payment.amount) !== Number(saved.amountPaise) ||
-      Number(order.amount) !== Number(saved.amountPaise) ||
-      payment.currency !== "INR" ||
-      order.currency !== "INR"
-    ) {
-      return res.status(402).json({ error: "Payment not confirmed." });
-    }
-
-    await grantPurchase({
-      uid: req.user.uid,
-      seriesId: saved.seriesId,
-      orderId,
-      paymentId,
-      amount: payment.amount,
-      currency: payment.currency
-    });
-
-    await db.ref(`paymentOrders/${orderId}`).update({
-      status: "paid",
-      paymentId,
-      paidAt: ServerValue.TIMESTAMP
-    });
-
-    res.json({ ok: true, message: "Payment verified." });
-  } catch (error) {
-    console.error("Verify payment:", error.message);
-    res.status(500).json({ error: "Could not verify payment." });
-  }
-});
-
-/* ---------- Check series access ---------- */
-
-app.get("/api/access/:seriesId", requireUser, async (req, res) => {
-  try {
-    const id = req.params.seriesId;
-    const series = await getSeries(id);
-    const allowed = Boolean(series && series.active && await ownsSeries(req.user.uid, id));
-
-    res.status(allowed ? 200 : 403).json({
-      allowed,
-      ...(!allowed ? { error: "Purchase this series to access its papers." } : {})
-    });
-  } catch {
-    res.status(500).json({ error: "Could not check access." });
-  }
-});
-
-/* ---------- Admin: series ---------- */
-
-app.get("/api/admin/series", requireUser, requireAdmin, async (_req, res) => {
-  try {
-    const snap = await db.ref("testSeries").get();
-    res.json({
-      series: Object.entries(snap.val() || {}).map(([id, item]) => safeSeries(item, id))
-    });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: "Could not load series." });
-  }
-});
-
-app.post("/api/admin/series", requireUser, requireAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const id = body.id ? text(body.id, 100) : `series_${crypto.randomBytes(8).toString("hex")}`;
-
-    const title = text(body.title, 150);
-    const description = text(body.description, 2000);
-    const className = text(body.className, 40);
-    const subject = text(body.subject, 80);
-    const priceRupees = Number(body.priceRupees);
-    const testCount = Number(body.testCount || 1);
-
-    if (
-      !validId(id) || !title || !className || !subject ||
-      !Number.isFinite(priceRupees) || priceRupees < 1 || priceRupees > 100000 ||
-      !Number.isInteger(testCount) || testCount < 1 || testCount > 10000
-    ) {
-      return res.status(400).json({ error: "Invalid series details." });
-    }
-
-    const ref = db.ref(`testSeries/${id}`);
-    const old = (await ref.get()).val();
-
-    const record = {
-      title,
-      description,
-      className,
-      subject,
-      pricePaise: Math.round(priceRupees * 100),
-      testCount,
-      active: body.active === true,
-      createdAt: old?.createdAt || ServerValue.TIMESTAMP,
-      updatedAt: ServerValue.TIMESTAMP
-    };
-
-    await ref.set(record);
-    res.json({ ok: true, series: safeSeries(record, id) });
-  } catch (error) {
-    console.error("Save series:", error.message);
-    res.status(500).json({ error: "Could not save series." });
-  }
-});
-
-app.post("/api/admin/series/:id/toggle", requireUser, requireAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-    if (!validId(id)) return res.status(400).json({ error: "Invalid ID." });
-
-    const ref = db.ref(`testSeries/${id}`);
-    if (!(await ref.get()).exists()) return res.status(404).json({ error: "Series not found." });
-
-    await ref.update({
-      active: req.body?.active === true,
-      updatedAt: ServerValue.TIMESTAMP
-    });
-    res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: "Could not update series." });
-  }
-});
-
-/* ---------- Admin: purchases ---------- */
-
-app.get("/api/admin/purchases", requireUser, requireAdmin, async (_req, res) => {
-  try {
-    const [purchaseSnap, seriesSnap] = await Promise.all([
-      db.ref("purchases").get(),
-      db.ref("testSeries").get()
-    ]);
-
-    const series = seriesSnap.val() || {};
-    const purchases = [];
-
-    for (const [uid, items] of Object.entries(purchaseSnap.val() || {})) {
-      for (const [seriesId, purchase] of Object.entries(items || {})) {
-        if (purchase?.status !== "active") continue;
-        purchases.push({
-          uid,
-          seriesId,
-          seriesTitle: series[seriesId]?.title || seriesId,
-          paymentId: purchase.paymentId || "",
-          amountPaise: Number(purchase.amountPaise || 0),
-          purchasedAt: purchase.purchasedAt || null,
-          status: purchase.status
-        });
-      }
-    }
-
-    purchases.sort((a, b) => Number(b.purchasedAt || 0) - Number(a.purchasedAt || 0));
-    res.json({ purchases });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: "Could not load purchases." });
-  }
-});
-
-/* ---------- Normalize questions ---------- */
-
-function normalizeQuestions(raw) {
-  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 500) {
-    throw new Error("Add between 1 and 500 MCQ questions.");
-  }
-
-  return raw.map((item, index) => {
-    const question = {
-      id: validId(item?.id) ? item.id : `q_${index + 1}`,
-      question: text(item?.question, 1000),
-      options: Array.isArray(item?.options) ? item.options.map(v => text(v, 400)) : [],
-      correctIndex: Number(item?.correctIndex),
-      explanation: text(item?.explanation, 1000)
-    };
-
-    if (
-      !question.question ||
-      question.options.length !== 4 ||
-      question.options.some(v => !v) ||
-      !Number.isInteger(question.correctIndex) ||
-      question.correctIndex < 0 ||
-      question.correctIndex > 3
-    ) {
-      throw new Error(`Question ${index + 1}: enter question, four options and correctIndex 0–3.`);
-    }
-    return question;
-  });
-}
-
-/* ---------- Admin: list papers ---------- */
-
-app.get("/api/admin/papers", requireUser, requireAdmin, async (_req, res) => {
-  try {
-    const snap = await db.ref("questionPapers").get();
-    const papers = Object.entries(snap.val() || {})
-      .map(([id, paper]) => ({
-        id,
-        ...paper,
-        questions: Array.isArray(paper.questions) ? paper.questions : [],
-        pdf: paper.pdf || null,
-        status: paper.status || "draft",
-        seriesId: paper.seriesId || null
-      }))
-      .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-
-    res.json({ papers });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: "Could not load papers." });
-  }
-});
-
-/* ---------- Admin: save MCQ paper ---------- */
-
-app.post("/api/admin/papers", requireUser, requireAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const id = body.id ? text(body.id, 100) : `paper_${crypto.randomBytes(8).toString("hex")}`;
-
-    const title = text(body.title, 150);
-    const className = text(body.className, 40);
-    const subject = text(body.subject, 80);
-    const seriesId = body.seriesId ? text(body.seriesId, 100) : null;
-    const durationMinutes = Number(body.durationMinutes ?? body.duration ?? 60);
-    const marksPerQuestion = Number(body.marksPerQuestion ?? 1);
-    const questions = normalizeQuestions(body.questions);
-
-    if (
-      !validId(id) || !title || !className || !subject ||
-      !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 240 ||
-      !Number.isFinite(marksPerQuestion) || marksPerQuestion <= 0 || marksPerQuestion > 100
-    ) {
-      return res.status(400).json({ error: "Invalid paper details." });
-    }
-
-    const ref = db.ref(`questionPapers/${id}`);
-    const old = (await ref.get()).val();
-
-    if (body.id && !old) return res.status(404).json({ error: "Paper not found." });
-
-    const paper = {
-      title,
-      className,
-      subject,
-      seriesId: seriesId || null,
-      durationMinutes,
-      marksPerQuestion,
-      instructions: text(body.instructions, 3000),
-      questions,
-      pdf: old?.pdf || null,
-      type: "mcq",
-      status: body.status === "published" ? "published" : (old?.status || "draft"),
-      createdAt: old?.createdAt || ServerValue.TIMESTAMP,
-      updatedAt: ServerValue.TIMESTAMP
-    };
-
-    await ref.set(paper);
-    res.json({ ok: true, id, paper: { id, ...paper } });
-  } catch (error) {
-    if (/^Add between|^Question /.test(error.message)) {
-      return res.status(400).json({ error: error.message });
-    }
-    console.error("Save MCQ paper:", error.message);
-    res.status(500).json({ error: "Could not save paper." });
-  }
-});
-
-/* ---------- Admin: PDF metadata ---------- */
-
-app.post("/api/admin/papers/pdf-metadata", requireUser, requireAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const id = body.id ? text(body.id, 100) : `paper_${crypto.randomBytes(8).toString("hex")}`;
-
-    const title = text(body.title, 150);
-    const className = text(body.className, 40);
-    const subject = text(body.subject, 80);
-    const seriesId = body.seriesId ? text(body.seriesId, 100) : null;
-    const durationMinutes = Number(body.durationMinutes || 60);
-
-    if (
-      !validId(id) || !title || !className || !subject ||
-      !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 300
-    ) {
-      return res.status(400).json({ error: "Enter valid title, class, subject and duration." });
-    }
-
-    const ref = db.ref(`questionPapers/${id}`);
-    const old = (await ref.get()).val();
-    if (body.id && !old) return res.status(404).json({ error: "Paper not found." });
-
-    const paper = {
-      ...(old || {}),
-      title,
-      className,
-      subject,
-      seriesId: seriesId || null,
-      durationMinutes,
-      instructions: text(body.instructions, 2000),
-      type: "pdf",
-      status: "draft",
-      createdAt: old?.createdAt || ServerValue.TIMESTAMP,
-      updatedAt: ServerValue.TIMESTAMP
-    };
-
-    await ref.set(paper);
-    res.json({ ok: true, id, paper: { id, ...paper } });
-  } catch (error) {
-    console.error("PDF metadata:", error.message);
-    res.status(500).json({ error: "Could not save PDF metadata." });
-  }
-});
-
-/* ---------- Admin: upload PDF ---------- */
-
-app.post("/api/admin/papers/:id/pdf", requireUser, requireAdmin, handleUpload, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const file = req.file;
-
-    if (!validId(id)) {
-      if (file) await removeLocalFile(file.filename);
-      return res.status(400).json({ error: "Invalid paper ID." });
-    }
-    if (!file) return res.status(400).json({ error: "Choose a PDF file." });
-
-    const handle = await fs.promises.open(file.path, "r");
-    const header = Buffer.alloc(5);
+app.put(
+  "/api/profile",
+  requireAuth,
+  async (req, res) => {
     try {
-      await handle.read(header, 0, 5, 0);
-    } finally {
-      await handle.close();
-    }
+      const displayName = cleanString(
+        req.body.displayName,
+        100
+      );
 
-    if (header.toString("ascii") !== "%PDF-") {
-      await removeLocalFile(file.filename);
-      return res.status(400).json({ error: "The uploaded file is not a valid PDF." });
-    }
-
-    const ref = db.ref(`questionPapers/${id}`);
-    const snap = await ref.get();
-    if (!snap.exists()) {
-      await removeLocalFile(file.filename);
-      return res.status(404).json({ error: "Save PDF metadata before uploading." });
-    }
-
-    const oldPdf = snap.val()?.pdf;
-    const pdf = {
-      fileName: safeFilename(file.originalname),
-      diskName: file.filename,
-      size: file.size,
-      contentType: "application/pdf",
-      uploadedAt: Date.now()
-    };
-
-    await ref.update({
-      pdf,
-      type: "pdf",
-      status: "draft",
-      updatedAt: ServerValue.TIMESTAMP
-    });
-
-    if (oldPdf?.diskName && oldPdf.diskName !== file.filename) {
-      removeLocalFile(oldPdf.diskName).catch(err => console.warn("Old PDF cleanup:", err.message));
-    }
-
-    res.json({ ok: true, pdf, message: "PDF uploaded to private server storage." });
-  } catch (error) {
-    if (req.file?.filename) await removeLocalFile(req.file.filename).catch(() => {});
-    console.error("PDF upload:", error.message);
-    res.status(500).json({ error: "PDF upload failed.", details: error.message });
-  }
-});
-
-/* ---------- Admin: PDF preview ---------- */
-
-app.get("/api/admin/papers/:id/pdf", requireUser, requireAdmin, async (req, res) => {
-  try {
-    await streamPaperPdf(req, res, true);
-  } catch (error) {
-    console.error("Admin PDF preview:", error.message);
-    if (!res.headersSent) res.status(500).json({ error: "Could not open PDF." });
-    else res.destroy(error);
-  }
-});
-
-/* ---------- Admin: publish/unpublish ---------- */
-
-app.post("/api/admin/papers/:id/publish", requireUser, requireAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-    if (!validId(id)) return res.status(400).json({ error: "Invalid paper ID." });
-
-    const ref = db.ref(`questionPapers/${id}`);
-    const snap = await ref.get();
-    if (!snap.exists()) return res.status(404).json({ error: "Paper not found." });
-
-    const paper = snap.val();
-    const published = req.body?.published === true || req.body?.status === "published";
-
-    if (
-      published &&
-      !(Array.isArray(paper.questions) && paper.questions.length) &&
-      !paper.pdf?.diskName
-    ) {
-      return res.status(400).json({ error: "Add MCQ questions or upload a PDF first." });
-    }
-
-    await ref.update({
-      status: published ? "published" : "draft",
-      updatedAt: ServerValue.TIMESTAMP
-    });
-
-    res.json({ ok: true, status: published ? "published" : "draft" });
-  } catch (error) {
-    console.error("Publish paper:", error.message);
-    res.status(500).json({ error: "Could not update paper status." });
-  }
-});
-
-/* ---------- Student: published papers (with seriesId support) ---------- */
-
-app.get("/api/papers", requireUser, async (req, res) => {
-  try {
-    const seriesIdFilter = req.query.seriesId ? text(req.query.seriesId, 100) : null;
-
-    const snap = await db.ref("questionPapers").get();
-    const allPapers = snap.val() || {};
-
-    const purchaseSnap = await db.ref(`purchases/${req.user.uid}`).get();
-    const purchases = purchaseSnap.val() || {};
-    const seriesSnap = await db.ref("testSeries").get();
-    const allSeries = seriesSnap.val() || {};
-
-    // Case 1: specific seriesId requested
-    if (seriesIdFilter) {
-      if (!purchases[seriesIdFilter] || purchases[seriesIdFilter].status !== "active") {
-        return res.status(403).json({ error: "You do not have access to this series." });
+      if (displayName.length < 2) {
+        return sendError(
+          res,
+          400,
+          "Name must contain at least 2 characters."
+        );
       }
 
-      const papers = Object.entries(allPapers)
-        .filter(([, paper]) => {
-          if (paper?.status !== "published") return false;
-          // Prefer exact seriesId match
-          if (paper.seriesId && paper.seriesId === seriesIdFilter) return true;
-          return false;
-        })
-        .map(([id, paper]) => ({
-          id,
-          title: text(paper.title, 150),
-          className: text(paper.className, 40),
-          subject: text(paper.subject, 80),
-          durationMinutes: Number(paper.durationMinutes || 60),
-          marksPerQuestion: Number(paper.marksPerQuestion || 1),
-          instructions: text(paper.instructions, 3000),
-          type: paper.type || (paper.pdf ? "pdf" : "mcq"),
-          pdf: paper.pdf ? { fileName: text(paper.pdf.fileName, 150), size: Number(paper.pdf.size || 0) } : null,
-          questionCount: Array.isArray(paper.questions) ? paper.questions.length : 0,
-          questions: []
+      await admin.auth().updateUser(
+        req.user.uid,
+        {
+          displayName
+        }
+      );
+
+      await db
+        .ref(`studentProfiles/${req.user.uid}`)
+        .update({
+          displayName,
+          updatedAt: getNow()
+        });
+
+      const profile = await getProfileData(
+        req.user.uid
+      );
+
+      res.json({
+        ok: true,
+        ...profile
+      });
+
+    } catch (error) {
+      console.error("Profile update error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to update profile."
+      );
+    }
+  }
+);
+
+/* =========================================
+   13. MY PURCHASED SERIES
+========================================= */
+
+app.get(
+  "/api/my-series",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const uid = req.user.uid;
+
+      const purchases = await getPurchasedSeries(uid);
+
+      const seriesSnapshot = await db
+        .ref("testSeries")
+        .get();
+
+      const allSeries = seriesSnapshot.exists()
+        ? seriesSnapshot.val()
+        : {};
+
+      const series = Object.entries(purchases)
+        .filter(([id, purchase]) =>
+          purchase?.status === "active" &&
+          allSeries[id]
+        )
+        .map(([id, purchase]) => ({
+          ...safeSeries(allSeries[id], id),
+
+          purchase: {
+            status: purchase.status,
+
+            purchasedAt: purchase.purchasedAt || null,
+
+            paymentId: purchase.paymentId || null,
+
+            amountPaise: safeNumber(
+              purchase.amountPaise
+            ),
+
+            currency: purchase.currency || "INR"
+          }
         }));
 
-      return res.json({ papers });
-    }
-
-    // Case 2: fallback – class + subject matching (for older papers without seriesId)
-    const ownsMatchingSeries = paper =>
-      Object.entries(purchases).some(([seriesId, purchase]) => {
-        if (purchase?.status !== "active") return false;
-        const series = allSeries[seriesId];
-        if (!series) return false;
-
-        const classMatch =
-          normalizeField(series.className) === normalizeField(paper.className) ||
-          normalizeField(series.className) === "all classes" ||
-          normalizeField(paper.className) === "all classes";
-
-        const subjectMatch = normalizeField(series.subject) === normalizeField(paper.subject);
-        return classMatch && subjectMatch;
+      res.json({
+        ok: true,
+        series
       });
 
-    const papers = Object.entries(allPapers)
-      .filter(([, paper]) => paper?.status === "published" && ownsMatchingSeries(paper))
-      .map(([id, paper]) => ({
+    } catch (error) {
+      console.error("My series error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load purchased series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   14. MY PAYMENT HISTORY
+========================================= */
+
+app.get(
+  "/api/my-purchases",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const uid = req.user.uid;
+
+      const purchases = await getPurchasedSeries(uid);
+
+      const seriesSnapshot = await db
+        .ref("testSeries")
+        .get();
+
+      const seriesData = seriesSnapshot.exists()
+        ? seriesSnapshot.val()
+        : {};
+
+      const result = Object.entries(purchases)
+        .filter(([, purchase]) =>
+          purchase?.status === "active"
+        )
+        .map(([seriesId, purchase]) => ({
+          seriesId,
+
+          seriesTitle:
+            seriesData[seriesId]?.title ||
+            "Test Series",
+
+          paymentId:
+            purchase.paymentId || null,
+
+          orderId:
+            purchase.orderId || null,
+
+          amountPaise:
+            safeNumber(purchase.amountPaise),
+
+          currency:
+            purchase.currency || "INR",
+
+          purchasedAt:
+            purchase.purchasedAt || null,
+
+          status:
+            purchase.status
+        }));
+
+      result.sort(
+        (a, b) =>
+          safeNumber(b.purchasedAt) -
+          safeNumber(a.purchasedAt)
+      );
+
+      res.json({
+        ok: true,
+        purchases: result
+      });
+
+    } catch (error) {
+      console.error("Payment history error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load payment history."
+      );
+    }
+  }
+);
+
+/* =========================================
+   15. CREATE RAZORPAY ORDER
+========================================= */
+
+app.post(
+  "/api/create-order",
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!requireRazorpay(res)) return;
+
+      const seriesId = cleanString(
+        req.body.seriesId,
+        180
+      );
+
+      if (!isValidId(seriesId)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Test Series ID."
+        );
+      }
+
+      const series = await getSeries(seriesId);
+
+      if (!series || series.active === false) {
+        return sendError(
+          res,
+          404,
+          "Test Series is not available."
+        );
+      }
+
+      const alreadyPurchased = await hasPaperAccess(
+        req.user.uid,
+        seriesId
+      );
+
+      if (alreadyPurchased) {
+        return sendError(
+          res,
+          409,
+          "You have already purchased this Test Series."
+        );
+      }
+
+      const amount = safeNumber(
+        series.pricePaise
+      );
+
+      if (
+        !Number.isInteger(amount) ||
+        amount <= 0
+      ) {
+        return sendError(
+          res,
+          400,
+          "Invalid Test Series price."
+        );
+      }
+
+      const order = await razorpay.orders.create({
+        amount,
+
+        currency: "INR",
+
+        receipt: makeId("receipt"),
+
+        notes: {
+          uid: req.user.uid,
+          seriesId
+        }
+      });
+
+      await db
+        .ref(`paymentOrders/${order.id}`)
+        .set({
+          uid: req.user.uid,
+
+          seriesId,
+
+          amountPaise: amount,
+
+          currency: "INR",
+
+          status: "created",
+
+          createdAt: getNow()
+        });
+
+      res.json({
+        ok: true,
+
+        orderId: order.id,
+
+        amount: order.amount,
+
+        currency: order.currency,
+
+        keyId: RAZORPAY_KEY_ID,
+
+        name: "BIHAR ACADEMIC BATTLE",
+
+        description: series.title
+      });
+
+    } catch (error) {
+      console.error("Create order error:", error);
+
+      sendError(
+        res,
+        500,
+        error.message || "Unable to create payment order."
+      );
+    }
+  }
+);
+
+/* =========================================
+   16. VERIFY RAZORPAY PAYMENT
+========================================= */
+
+app.post(
+  "/api/verify-payment",
+  requireAuth,
+  async (req, res) => {
+    try {
+      if (!requireRazorpay(res)) return;
+
+      const orderId = cleanString(
+        req.body.razorpay_order_id,
+        200
+      );
+
+      const paymentId = cleanString(
+        req.body.razorpay_payment_id,
+        200
+      );
+
+      const signature = cleanString(
+        req.body.razorpay_signature,
+        300
+      );
+
+      if (!orderId || !paymentId || !signature) {
+        return sendError(
+          res,
+          400,
+          "Payment details are incomplete."
+        );
+      }
+
+      const orderSnapshot = await db
+        .ref(`paymentOrders/${orderId}`)
+        .get();
+
+      if (!orderSnapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Payment order not found."
+        );
+      }
+
+      const orderData = orderSnapshot.val();
+
+      if (orderData.uid !== req.user.uid) {
+        return sendError(
+          res,
+          403,
+          "This payment order does not belong to your account."
+        );
+      }
+
+      const expectedSignature = crypto
+        .createHmac(
+          "sha256",
+          RAZORPAY_KEY_SECRET
+        )
+        .update(`${orderId}|${paymentId}`)
+        .digest("hex");
+
+      const suppliedBuffer = Buffer.from(signature);
+      const expectedBuffer = Buffer.from(expectedSignature);
+
+      if (
+        suppliedBuffer.length !== expectedBuffer.length ||
+        !crypto.timingSafeEqual(
+          suppliedBuffer,
+          expectedBuffer
+        )
+      ) {
+        return sendError(
+          res,
+          400,
+          "Payment signature verification failed."
+        );
+      }
+
+      // Fetch payment directly from Razorpay.
+      const payment = await razorpay.payments.fetch(
+        paymentId
+      );
+
+      if (payment.order_id !== orderId) {
+        return sendError(
+          res,
+          400,
+          "Payment order mismatch."
+        );
+      }
+
+      if (
+        safeNumber(payment.amount) !==
+        safeNumber(orderData.amountPaise)
+      ) {
+        return sendError(
+          res,
+          400,
+          "Payment amount mismatch."
+        );
+      }
+
+      if (payment.currency !== "INR") {
+        return sendError(
+          res,
+          400,
+          "Invalid payment currency."
+        );
+      }
+
+      if (payment.status !== "captured") {
+        return sendError(
+          res,
+          409,
+          "Payment is not captured yet."
+        );
+      }
+
+      const purchase = await grantPurchase({
+        uid: req.user.uid,
+
+        seriesId: orderData.seriesId,
+
+        paymentId,
+
+        orderId,
+
+        amountPaise: payment.amount
+      });
+
+      await db
+        .ref(`paymentOrders/${orderId}`)
+        .update({
+          status: "paid",
+
+          paymentId,
+
+          verifiedAt: getNow()
+        });
+
+      res.json({
+        ok: true,
+
+        message: "Payment verified successfully.",
+
+        purchase
+      });
+
+    } catch (error) {
+      console.error("Verify payment error:", error);
+
+      sendError(
+        res,
+        500,
+        error.message || "Payment verification failed."
+      );
+    }
+  }
+);
+
+/* =========================================
+   17. STUDENT SERIES ACCESS
+========================================= */
+
+app.get(
+  "/api/access/:seriesId",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const seriesId = req.params.seriesId;
+
+      if (!isValidId(seriesId)) {
+        return sendError(
+          res,
+          400,
+          "Invalid series ID."
+        );
+      }
+
+      const allowed = await hasPaperAccess(
+        req.user.uid,
+        seriesId
+      );
+
+      if (!allowed) {
+        return res.status(403).json({
+          ok: false,
+
+          allowed: false,
+
+          error: "Purchase required to access this Test Series."
+        });
+      }
+
+      const series = await getSeries(seriesId);
+
+      if (!series) {
+        return sendError(
+          res,
+          404,
+          "Test Series not found."
+        );
+      }
+
+      const papersSnapshot = await db
+        .ref("questionPapers")
+        .get();
+
+      const allPapers = papersSnapshot.exists()
+        ? papersSnapshot.val()
+        : {};
+
+      const papers = Object.entries(allPapers)
+        .filter(([, paper]) =>
+          paper.seriesId === seriesId &&
+          paper.status === "published"
+        )
+        .map(([id, paper]) =>
+          safePaper(paper, id)
+        );
+
+      res.json({
+        ok: true,
+
+        allowed: true,
+
+        series: safeSeries(series, seriesId),
+
+        papers
+      });
+
+    } catch (error) {
+      console.error("Access error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load Test Series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   18. ADMIN SERIES LIST
+========================================= */
+
+app.get(
+  "/api/admin/series",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const snapshot = await db
+        .ref("testSeries")
+        .get();
+
+      const data = snapshot.exists()
+        ? snapshot.val()
+        : {};
+
+      const series = Object.entries(data)
+        .map(([id, item]) =>
+          safeSeries(item, id)
+        )
+        .filter(Boolean);
+
+      res.json({
+        ok: true,
+        series
+      });
+
+    } catch (error) {
+      console.error("Admin series error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load Admin Series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   19. ADMIN CREATE SERIES
+========================================= */
+
+app.post(
+  "/api/admin/series",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const payload = normalizeSeriesBody(
+        req.body
+      );
+
+      const id = req.body.id
+        ? cleanString(req.body.id, 180)
+        : makeId("series");
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Series ID."
+        );
+      }
+
+      const ref = db.ref(
+        `testSeries/${id}`
+      );
+
+      const existing = await ref.get();
+
+      if (existing.exists()) {
+        return sendError(
+          res,
+          409,
+          "This Series ID already exists."
+        );
+      }
+
+      const now = getNow();
+
+      await ref.set({
+        ...payload,
+
+        createdAt: now,
+
+        updatedAt: now
+      });
+
+      res.status(201).json({
+        ok: true,
+
         id,
-        title: text(paper.title, 150),
-        className: text(paper.className, 40),
-        subject: text(paper.subject, 80),
-        durationMinutes: Number(paper.durationMinutes || 60),
-        marksPerQuestion: Number(paper.marksPerQuestion || 1),
-        instructions: text(paper.instructions, 3000),
-        type: paper.type || (paper.pdf ? "pdf" : "mcq"),
-        pdf: paper.pdf ? { fileName: text(paper.pdf.fileName, 150), size: Number(paper.pdf.size || 0) } : null,
-        questionCount: Array.isArray(paper.questions) ? paper.questions.length : 0,
-        questions: []
+
+        series: safeSeries(
+          {
+            ...payload,
+            createdAt: now,
+            updatedAt: now
+          },
+          id
+        )
+      });
+
+    } catch (error) {
+      console.error("Create series error:", error);
+
+      sendError(
+        res,
+        400,
+        error.message || "Unable to create series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   20. ADMIN UPDATE SERIES
+========================================= */
+
+app.put(
+  "/api/admin/series/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Series ID."
+        );
+      }
+
+      const ref = db.ref(
+        `testSeries/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Series not found."
+        );
+      }
+
+      const payload = normalizeSeriesBody(
+        req.body
+      );
+
+      const existing = snapshot.val();
+
+      await ref.update({
+        ...payload,
+
+        createdAt:
+          existing.createdAt || getNow(),
+
+        updatedAt: getNow()
+      });
+
+      const updated = await ref.get();
+
+      res.json({
+        ok: true,
+
+        series: safeSeries(
+          updated.val(),
+          id
+        )
+      });
+
+    } catch (error) {
+      console.error("Update series error:", error);
+
+      sendError(
+        res,
+        400,
+        error.message || "Unable to update series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   21. ADMIN DISABLE SERIES
+========================================= */
+
+app.delete(
+  "/api/admin/series/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Series ID."
+        );
+      }
+
+      const ref = db.ref(
+        `testSeries/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Series not found."
+        );
+      }
+
+      await ref.update({
+        active: false,
+        updatedAt: getNow()
+      });
+
+      res.json({
+        ok: true,
+        message: "Series disabled successfully."
+      });
+
+    } catch (error) {
+      console.error("Disable series error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to disable series."
+      );
+    }
+  }
+);
+
+/* =========================================
+   22. ADMIN TOGGLE SERIES
+========================================= */
+
+app.post(
+  "/api/admin/series/:id/toggle",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Series ID."
+        );
+      }
+
+      if (typeof req.body.active !== "boolean") {
+        return sendError(
+          res,
+          400,
+          "active must be true or false."
+        );
+      }
+
+      const ref = db.ref(
+        `testSeries/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Series not found."
+        );
+      }
+
+      await ref.update({
+        active: req.body.active,
+        updatedAt: getNow()
+      });
+
+      res.json({
+        ok: true,
+        active: req.body.active
+      });
+
+    } catch (error) {
+      console.error("Toggle series error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to update series status."
+      );
+    }
+  }
+);
+
+/* =========================================
+   23. ADMIN PAPER LIST
+========================================= */
+
+app.get(
+  "/api/admin/papers",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const snapshot = await db
+        .ref("questionPapers")
+        .get();
+
+      const data = snapshot.exists()
+        ? snapshot.val()
+        : {};
+
+      const papers = Object.entries(data)
+        .map(([id, paper]) => ({
+          ...safePaper(paper, id),
+
+          questions:
+            Array.isArray(paper.questions)
+              ? paper.questions
+              : []
+        }))
+        .filter(Boolean);
+
+      res.json({
+        ok: true,
+        papers
+      });
+
+    } catch (error) {
+      console.error("Admin papers error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load papers."
+      );
+    }
+  }
+);
+
+/* =========================================
+   24. ADMIN CREATE / UPDATE MCQ PAPER
+========================================= */
+
+app.post(
+  "/api/admin/papers",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+
+      const title = cleanString(
+        body.title,
+        200
+      );
+
+      const className = cleanString(
+        body.className,
+        100
+      );
+
+      const subject = cleanString(
+        body.subject,
+        150
+      );
+
+      const seriesId = cleanString(
+        body.seriesId,
+        180
+      );
+
+      const durationMinutes = Math.floor(
+        safeNumber(body.durationMinutes, 60)
+      );
+
+      const marksPerQuestion = safeNumber(
+        body.marksPerQuestion,
+        1
+      );
+
+      const instructions = cleanString(
+        body.instructions,
+        5000
+      );
+
+      const status = body.status === "published"
+        ? "published"
+        : "draft";
+
+      if (!title || !className || !subject) {
+        return sendError(
+          res,
+          400,
+          "Title, class and subject are required."
+        );
+      }
+
+      if (!isValidId(seriesId)) {
+        return sendError(
+          res,
+          400,
+          "A valid Test Series must be selected."
+        );
+      }
+
+      const series = await getSeries(seriesId);
+
+      if (!series) {
+        return sendError(
+          res,
+          404,
+          "Selected Test Series does not exist."
+        );
+      }
+
+      if (
+        durationMinutes < 1 ||
+        durationMinutes > 1440
+      ) {
+        return sendError(
+          res,
+          400,
+          "Invalid test duration."
+        );
+      }
+
+      if (
+        marksPerQuestion <= 0 ||
+        marksPerQuestion > 100
+      ) {
+        return sendError(
+          res,
+          400,
+          "Invalid marks per question."
+        );
+      }
+
+      const questions = normalizeQuestions(
+        body.questions
+      );
+
+      const id = body.id
+        ? cleanString(body.id, 180)
+        : makeId("paper");
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const ref = db.ref(
+        `questionPapers/${id}`
+      );
+
+      const existingSnapshot = await ref.get();
+
+      if (
+        body.id &&
+        !existingSnapshot.exists()
+      ) {
+        return sendError(
+          res,
+          404,
+          "Paper to update was not found."
+        );
+      }
+
+      if (
+        existingSnapshot.exists() &&
+        existingSnapshot.val().type === "pdf"
+      ) {
+        return sendError(
+          res,
+          400,
+          "A PDF paper cannot be converted into an MCQ paper."
+        );
+      }
+
+      const existing = existingSnapshot.exists()
+        ? existingSnapshot.val()
+        : {};
+
+      const now = getNow();
+
+      const paper = {
+        title,
+
+        className,
+
+        subject,
+
+        seriesId,
+
+        durationMinutes,
+
+        marksPerQuestion,
+
+        instructions,
+
+        type: "mcq",
+
+        status,
+
+        questions,
+
+        questionCount: questions.length,
+
+        createdAt:
+          existing.createdAt || now,
+
+        updatedAt: now
+      };
+
+      await ref.set(paper);
+
+      res.json({
+        ok: true,
+
+        id,
+
+        paper: safePaper(paper, id)
+      });
+
+    } catch (error) {
+      console.error("Save MCQ error:", error);
+
+      sendError(
+        res,
+        400,
+        error.message || "Unable to save MCQ paper."
+      );
+    }
+  }
+);
+
+/* =========================================
+   25. PDF UPLOAD CONFIGURATION
+========================================= */
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1
+  },
+
+  fileFilter(req, file, callback) {
+    const isPdf =
+      file.mimetype === "application/pdf" &&
+      file.originalname
+        .toLowerCase()
+        .endsWith(".pdf");
+
+    if (!isPdf) {
+      return callback(
+        new Error("Only PDF files are allowed.")
+      );
+    }
+
+    callback(null, true);
+  }
+});
+
+/* =========================================
+   26. ADMIN PDF METADATA
+========================================= */
+
+app.post(
+  "/api/admin/papers/pdf-metadata",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+
+      const title = cleanString(
+        body.title,
+        200
+      );
+
+      const className = cleanString(
+        body.className,
+        100
+      );
+
+      const subject = cleanString(
+        body.subject,
+        150
+      );
+
+      const seriesId = cleanString(
+        body.seriesId,
+        180
+      );
+
+      const durationMinutes = Math.floor(
+        safeNumber(body.durationMinutes, 60)
+      );
+
+      const instructions = cleanString(
+        body.instructions,
+        5000
+      );
+
+      if (!title || !className || !subject) {
+        return sendError(
+          res,
+          400,
+          "Title, class and subject are required."
+        );
+      }
+
+      if (!isValidId(seriesId)) {
+        return sendError(
+          res,
+          400,
+          "A valid Test Series must be selected."
+        );
+      }
+
+      const series = await getSeries(seriesId);
+
+      if (!series) {
+        return sendError(
+          res,
+          404,
+          "Test Series not found."
+        );
+      }
+
+      if (
+        durationMinutes < 1 ||
+        durationMinutes > 1440
+      ) {
+        return sendError(
+          res,
+          400,
+          "Invalid duration."
+        );
+      }
+
+      const id = req.body.id
+        ? cleanString(req.body.id, 180)
+        : makeId("pdf");
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const ref = db.ref(
+        `questionPapers/${id}`
+      );
+
+      const existingSnapshot = await ref.get();
+
+      if (
+        req.body.id &&
+        !existingSnapshot.exists()
+      ) {
+        return sendError(
+          res,
+          404,
+          "PDF paper not found."
+        );
+      }
+
+      const existing = existingSnapshot.exists()
+        ? existingSnapshot.val()
+        : {};
+
+      if (
+        existingSnapshot.exists() &&
+        existing.type !== "pdf"
+      ) {
+        return sendError(
+          res,
+          400,
+          "This paper is not a PDF paper."
+        );
+      }
+
+      const now = getNow();
+
+      const paper = {
+        title,
+
+        className,
+
+        subject,
+
+        seriesId,
+
+        durationMinutes,
+
+        marksPerQuestion: 0,
+
+        instructions,
+
+        type: "pdf",
+
+        status: existing.status || "draft",
+
+        pdf: existing.pdf || null,
+
+        questionCount: 0,
+
+        createdAt:
+          existing.createdAt || now,
+
+        updatedAt: now
+      };
+
+      await ref.set(paper);
+
+      res.json({
+        ok: true,
+
+        id,
+
+        paper: safePaper(paper, id)
+      });
+
+    } catch (error) {
+      console.error("PDF metadata error:", error);
+
+      sendError(
+        res,
+        400,
+        error.message || "Unable to save PDF details."
+      );
+    }
+  }
+);
+
+/* =========================================
+   27. ADMIN UPLOAD PDF FILE
+========================================= */
+
+app.post(
+  "/api/admin/papers/:id/pdf",
+  requireAuth,
+  requireAdmin,
+  (req, res, next) => {
+    upload.single("pdf")(req, res, error => {
+      if (error) {
+        return sendError(
+          res,
+          400,
+          error.message || "PDF upload failed."
+        );
+      }
+
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      if (!req.file) {
+        return sendError(
+          res,
+          400,
+          "PDF file is required."
+        );
+      }
+
+      const pdfBuffer = req.file.buffer;
+
+      // Validate actual PDF file signature.
+      if (
+        pdfBuffer.length < 5 ||
+        pdfBuffer.subarray(0, 5).toString() !== "%PDF-"
+      ) {
+        return sendError(
+          res,
+          400,
+          "The uploaded file is not a valid PDF."
+        );
+      }
+
+      const ref = db.ref(
+        `questionPapers/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "PDF paper metadata not found."
+        );
+      }
+
+      const paper = snapshot.val();
+
+      if (paper.type !== "pdf") {
+        return sendError(
+          res,
+          400,
+          "This paper is not a PDF paper."
+        );
+      }
+
+      const filePath = safeFilePath(id);
+
+      const temporaryPath =
+        `${filePath}.${crypto.randomUUID()}.tmp`;
+
+      await fs.promises.writeFile(
+        temporaryPath,
+        pdfBuffer
+      );
+
+      await fs.promises.rename(
+        temporaryPath,
+        filePath
+      );
+
+      const fileInfo = {
+        fileName: `${id}.pdf`,
+
+        originalName: cleanString(
+          path.basename(req.file.originalname),
+          200
+        ),
+
+        size: pdfBuffer.length,
+
+        mimeType: "application/pdf",
+
+        uploadedAt: getNow()
+      };
+
+      await ref.update({
+        pdf: fileInfo,
+
+        updatedAt: getNow()
+      });
+
+      res.json({
+        ok: true,
+
+        id,
+
+        message: "PDF uploaded successfully.",
+
+        pdf: fileInfo
+      });
+
+    } catch (error) {
+      console.error("PDF upload error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to upload PDF."
+      );
+    }
+  }
+);
+
+/* =========================================
+   28. ADMIN PREVIEW PDF
+========================================= */
+
+app.get(
+  "/api/admin/papers/:id/pdf",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const paper = await getPaper(id);
+
+      if (!paper || paper.type !== "pdf" || !paper.pdf) {
+        return sendError(
+          res,
+          404,
+          "PDF not found."
+        );
+      }
+
+      const filePath = safeFilePath(id);
+
+      if (!fs.existsSync(filePath)) {
+        return sendError(
+          res,
+          404,
+          "PDF file is missing from storage."
+        );
+      }
+
+      res.setHeader(
+        "Content-Type",
+        "application/pdf"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${id}.pdf"`
+      );
+
+      res.setHeader(
+        "X-Content-Type-Options",
+        "nosniff"
+      );
+
+      await pipeline(
+        fs.createReadStream(filePath),
+        res
+      );
+
+    } catch (error) {
+      console.error("Admin PDF preview error:", error);
+
+      if (!res.headersSent) {
+        sendError(
+          res,
+          500,
+          "Unable to open PDF."
+        );
+      }
+    }
+  }
+);
+
+/* =========================================
+   29. PUBLISH / UNPUBLISH PAPER
+========================================= */
+
+app.post(
+  "/api/admin/papers/:id/publish",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const ref = db.ref(
+        `questionPapers/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Paper not found."
+        );
+      }
+
+      const paper = snapshot.val();
+
+      let published;
+
+      if (typeof req.body.published === "boolean") {
+        published = req.body.published;
+      } else if (
+        typeof req.body.status === "string"
+      ) {
+        published =
+          req.body.status === "published";
+      } else {
+        return sendError(
+          res,
+          400,
+          "published must be true or false."
+        );
+      }
+
+      if (
+        published &&
+        paper.type === "pdf" &&
+        !paper.pdf
+      ) {
+        return sendError(
+          res,
+          400,
+          "Upload the PDF before publishing."
+        );
+      }
+
+      if (
+        published &&
+        paper.type === "mcq" &&
+        (
+          !Array.isArray(paper.questions) ||
+          paper.questions.length === 0
+        )
+      ) {
+        return sendError(
+          res,
+          400,
+          "Add questions before publishing."
+        );
+      }
+
+      await ref.update({
+        status: published
+          ? "published"
+          : "draft",
+
+        updatedAt: getNow()
+      });
+
+      res.json({
+        ok: true,
+
+        status: published
+          ? "published"
+          : "draft"
+      });
+
+    } catch (error) {
+      console.error("Publish paper error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to update paper status."
+      );
+    }
+  }
+);
+
+/* =========================================
+   30. DELETE PAPER
+========================================= */
+
+app.delete(
+  "/api/admin/papers/:id",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const ref = db.ref(
+        `questionPapers/${id}`
+      );
+
+      const snapshot = await ref.get();
+
+      if (!snapshot.exists()) {
+        return sendError(
+          res,
+          404,
+          "Paper not found."
+        );
+      }
+
+      const paper = snapshot.val();
+
+      await ref.remove();
+
+      if (paper.type === "pdf") {
+        const filePath = safeFilePath(id);
+
+        await fs.promises.rm(
+          filePath,
+          { force: true }
+        );
+      }
+
+      res.json({
+        ok: true,
+        message: "Paper deleted successfully."
+      });
+
+    } catch (error) {
+      console.error("Delete paper error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to delete paper."
+      );
+    }
+  }
+);
+
+/* =========================================
+   31. STUDENT PAPER LIST
+========================================= */
+
+app.get(
+  "/api/papers",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const uid = req.user.uid;
+
+      const seriesId = req.query.seriesId
+        ? cleanString(req.query.seriesId, 180)
+        : "";
+
+      const snapshot = await db
+        .ref("questionPapers")
+        .get();
+
+      const allPapers = snapshot.exists()
+        ? snapshot.val()
+        : {};
+
+      const purchases = await getPurchasedSeries(uid);
+
+      const papers = Object.entries(allPapers)
+        .filter(([id, paper]) => {
+          if (paper.status !== "published") {
+            return false;
+          }
+
+          if (
+            seriesId &&
+            paper.seriesId !== seriesId
+          ) {
+            return false;
+          }
+
+          return (
+            purchases[paper.seriesId]?.status === "active"
+          );
+        })
+        .map(([id, paper]) =>
+          safePaper(paper, id)
+        );
+
+      res.json({
+        ok: true,
+        papers
+      });
+
+    } catch (error) {
+      console.error("Student papers error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load papers."
+      );
+    }
+  }
+);
+
+/* =========================================
+   32. STUDENT GET MCQ QUESTIONS
+========================================= */
+
+app.get(
+  "/api/papers/:id/questions",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const paper = await getPaper(id);
+
+      if (!paper || paper.status !== "published") {
+        return sendError(
+          res,
+          404,
+          "Published paper not found."
+        );
+      }
+
+      if (paper.type !== "mcq") {
+        return sendError(
+          res,
+          400,
+          "This is not an MCQ paper."
+        );
+      }
+
+      const allowed = await hasPaperAccess(
+        req.user.uid,
+        paper.seriesId
+      );
+
+      if (!allowed) {
+        return sendError(
+          res,
+          403,
+          "Purchase required to access this paper."
+        );
+      }
+
+      // Never send correctIndex to students.
+      const questions = (
+        Array.isArray(paper.questions)
+          ? paper.questions
+          : []
+      ).map(question => ({
+        id: question.id,
+
+        question: question.question,
+
+        options: question.options
       }));
 
-    res.json({ papers });
-  } catch (error) {
-    console.error("Published papers:", error.message);
-    res.status(500).json({ error: "Could not load published papers." });
-  }
-});
+      res.json({
+        ok: true,
 
-/* ---------- Student: MCQ questions ---------- */
+        paper: safePaper(paper, id),
 
-app.get("/api/papers/:id/questions", requireUser, async (req, res) => {
-  try {
-    const id = req.params.id;
-    if (!validId(id)) return res.status(400).json({ error: "Invalid paper ID." });
-
-    const paperSnap = await db.ref(`questionPapers/${id}`).get();
-    if (!paperSnap.exists()) return res.status(404).json({ error: "Paper not found." });
-
-    const paper = paperSnap.val();
-    if (paper.status !== "published") {
-      return res.status(404).json({ error: "This paper is not published." });
-    }
-    if (paper.type === "pdf" || paper.pdf?.diskName) {
-      return res.status(400).json({ error: "This is a PDF paper, not an MCQ paper." });
-    }
-
-    const purchaseSnap = await db.ref(`purchases/${req.user.uid}`).get();
-    const purchases = purchaseSnap.val() || {};
-    const seriesSnap = await db.ref("testSeries").get();
-    const allSeries = seriesSnap.val() || {};
-
-    // Check access via seriesId first, then fallback to class+subject
-    let hasAccess = false;
-
-    if (paper.seriesId && purchases[paper.seriesId]?.status === "active") {
-      hasAccess = true;
-    } else {
-      hasAccess = Object.entries(purchases).some(([seriesId, purchase]) => {
-        if (purchase?.status !== "active") return false;
-        const series = allSeries[seriesId];
-        if (!series) return false;
-
-        const classMatch =
-          normalizeField(series.className) === normalizeField(paper.className) ||
-          normalizeField(series.className) === "all classes" ||
-          normalizeField(paper.className) === "all classes";
-
-        const subjectMatch = normalizeField(series.subject) === normalizeField(paper.subject);
-        return classMatch && subjectMatch;
-      });
-    }
-
-    if (!hasAccess) {
-      return res.status(403).json({
-        error: "Purchase the matching active test series to access this paper."
-      });
-    }
-
-    if (!Array.isArray(paper.questions) || !paper.questions.length) {
-      return res.status(404).json({ error: "No MCQ questions are saved in this paper." });
-    }
-
-    const questions = paper.questions.map((q, index) => ({
-      id: String(q.id || `q_${index + 1}`),
-      question: text(q.question, 1000),
-      options: Array.isArray(q.options) ? q.options.slice(0, 4).map(o => text(o, 400)) : []
-    }));
-
-    res.json({
-      ok: true,
-      paper: {
-        id,
-        title: text(paper.title, 150),
-        className: text(paper.className, 40),
-        subject: text(paper.subject, 80),
-        durationMinutes: Number(paper.durationMinutes || 60),
-        marksPerQuestion: Number(paper.marksPerQuestion || 1),
-        instructions: text(paper.instructions, 3000),
         questions
+      });
+
+    } catch (error) {
+      console.error("Load questions error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load questions."
+      );
+    }
+  }
+);
+
+/* =========================================
+   33. STUDENT DOWNLOAD / VIEW PDF
+========================================= */
+
+app.get(
+  "/api/papers/:id/pdf",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      if (!isValidId(id)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
       }
-    });
-  } catch (error) {
-    console.error("Load MCQ questions:", error.message);
-    res.status(500).json({ error: "Could not load MCQ questions." });
+
+      const paper = await getPaper(id);
+
+      if (
+        !paper ||
+        paper.type !== "pdf" ||
+        paper.status !== "published" ||
+        !paper.pdf
+      ) {
+        return sendError(
+          res,
+          404,
+          "Published PDF not found."
+        );
+      }
+
+      const allowed = await hasPaperAccess(
+        req.user.uid,
+        paper.seriesId
+      );
+
+      if (!allowed) {
+        return sendError(
+          res,
+          403,
+          "Purchase required to download this PDF."
+        );
+      }
+
+      const filePath = safeFilePath(id);
+
+      if (!fs.existsSync(filePath)) {
+        return sendError(
+          res,
+          404,
+          "PDF file is missing from storage."
+        );
+      }
+
+      res.setHeader(
+        "Content-Type",
+        "application/pdf"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${id}.pdf"`
+      );
+
+      res.setHeader(
+        "X-Content-Type-Options",
+        "nosniff"
+      );
+
+      res.setHeader(
+        "Cache-Control",
+        "private, no-store, no-cache, must-revalidate"
+      );
+
+      await pipeline(
+        fs.createReadStream(filePath),
+        res
+      );
+
+    } catch (error) {
+      console.error("Student PDF error:", error);
+
+      if (!res.headersSent) {
+        sendError(
+          res,
+          500,
+          "Unable to open PDF."
+        );
+      }
+    }
   }
+);
+
+/* =========================================
+   34. STUDENT SUBMIT MCQ TEST
+========================================= */
+
+app.post(
+  "/api/papers/:id/submit",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const paperId = req.params.id;
+
+      if (!isValidId(paperId)) {
+        return sendError(
+          res,
+          400,
+          "Invalid Paper ID."
+        );
+      }
+
+      const paper = await getPaper(paperId);
+
+      if (
+        !paper ||
+        paper.status !== "published" ||
+        paper.type !== "mcq"
+      ) {
+        return sendError(
+          res,
+          404,
+          "Published MCQ paper not found."
+        );
+      }
+
+      const allowed = await hasPaperAccess(
+        req.user.uid,
+        paper.seriesId
+      );
+
+      if (!allowed) {
+        return sendError(
+          res,
+          403,
+          "Purchase required to submit this test."
+        );
+      }
+
+      const questions = Array.isArray(paper.questions)
+        ? paper.questions
+        : [];
+
+      if (!questions.length) {
+        return sendError(
+          res,
+          400,
+          "This test has no questions."
+        );
+      }
+
+      const submittedAnswers = req.body.answers;
+
+      if (!Array.isArray(submittedAnswers)) {
+        return sendError(
+          res,
+          400,
+          "Answers must be an array."
+        );
+      }
+
+      if (submittedAnswers.length > questions.length) {
+        return sendError(
+          res,
+          400,
+          "Too many answers were submitted."
+        );
+      }
+
+      const answerMap = new Map();
+
+      for (const item of submittedAnswers) {
+        const index = Number(item.questionIndex);
+        const answer = item.answer;
+
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= questions.length
+        ) {
+          return sendError(
+            res,
+            400,
+            "Invalid question index."
+          );
+        }
+
+        if (answer === null || answer === undefined) {
+          continue;
+        }
+
+        const answerIndex = Number(answer);
+
+        if (
+          !Number.isInteger(answerIndex) ||
+          answerIndex < 0 ||
+          answerIndex > 3
+        ) {
+          return sendError(
+            res,
+            400,
+            "Invalid answer option."
+          );
+        }
+
+        if (answerMap.has(index)) {
+          return sendError(
+            res,
+            400,
+            "Duplicate answer for a question."
+          );
+        }
+
+        answerMap.set(index, answerIndex);
+      }
+
+      let correct = 0;
+      let attempted = 0;
+
+      questions.forEach((question, index) => {
+        if (!answerMap.has(index)) {
+          return;
+        }
+
+        attempted++;
+
+        if (
+          answerMap.get(index) ===
+          Number(question.correctIndex)
+        ) {
+          correct++;
+        }
+      });
+
+      const marksPerQuestion = safeNumber(
+        paper.marksPerQuestion,
+        1
+      );
+
+      const score = correct * marksPerQuestion;
+
+      const totalMarks =
+        questions.length * marksPerQuestion;
+
+      const attemptId = makeId("attempt");
+
+      const attempt = {
+        attemptId,
+
+        paperId,
+
+        paperTitle: paper.title || "",
+
+        seriesId: paper.seriesId,
+
+        uid: req.user.uid,
+
+        attempted,
+
+        correct,
+
+        totalQuestions: questions.length,
+
+        marksPerQuestion,
+
+        score,
+
+        totalMarks,
+
+        submittedAt: getNow(),
+
+        answers: Array.from(
+          answerMap.entries()
+        ).map(([questionIndex, answer]) => ({
+          questionIndex,
+          answer
+        }))
+      };
+
+      await db
+        .ref(
+          `testAttempts/${req.user.uid}/${attemptId}`
+        )
+        .set(attempt);
+
+      res.json({
+        ok: true,
+
+        message: "Test submitted successfully.",
+
+        attemptId,
+
+        score,
+
+        totalMarks,
+
+        correct,
+
+        attempted,
+
+        totalQuestions: questions.length
+      });
+
+    } catch (error) {
+      console.error("Test submit error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to submit test."
+      );
+    }
+  }
+);
+
+/* =========================================
+   35. ADMIN PURCHASES
+========================================= */
+
+app.get(
+  "/api/admin/purchases",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const [purchasesSnapshot, seriesSnapshot] =
+        await Promise.all([
+          db.ref("purchases").get(),
+          db.ref("testSeries").get()
+        ]);
+
+      const purchasesData =
+        purchasesSnapshot.exists()
+          ? purchasesSnapshot.val()
+          : {};
+
+      const seriesData =
+        seriesSnapshot.exists()
+          ? seriesSnapshot.val()
+          : {};
+
+      const purchases = [];
+
+      for (
+        const [uid, userPurchases]
+        of Object.entries(purchasesData)
+      ) {
+        if (
+          !userPurchases ||
+          typeof userPurchases !== "object"
+        ) {
+          continue;
+        }
+
+        let email = "";
+
+        try {
+          const user = await admin.auth().getUser(uid);
+
+          email = user.email || "";
+        } catch {
+          email = "";
+        }
+
+        for (
+          const [seriesId, purchase]
+          of Object.entries(userPurchases)
+        ) {
+          if (!purchase) continue;
+
+          purchases.push({
+            uid,
+
+            email,
+
+            seriesId,
+
+            seriesTitle:
+              seriesData[seriesId]?.title ||
+              "Test Series",
+
+            paymentId:
+              purchase.paymentId || null,
+
+            orderId:
+              purchase.orderId || null,
+
+            amountPaise:
+              safeNumber(purchase.amountPaise),
+
+            currency:
+              purchase.currency || "INR",
+
+            purchasedAt:
+              purchase.purchasedAt || null,
+
+            status:
+              purchase.status || "unknown"
+          });
+        }
+      }
+
+      purchases.sort(
+        (a, b) =>
+          safeNumber(b.purchasedAt) -
+          safeNumber(a.purchasedAt)
+      );
+
+      res.json({
+        ok: true,
+        purchases
+      });
+
+    } catch (error) {
+      console.error("Admin purchases error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load purchases."
+      );
+    }
+  }
+);
+
+/* =========================================
+   36. ADMIN STUDENTS
+========================================= */
+
+app.get(
+  "/api/admin/users",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const users = [];
+
+      let pageToken;
+
+      const maxPages = 20;
+
+      for (
+        let page = 0;
+        page < maxPages;
+        page++
+      ) {
+        const result = await admin.auth().listUsers(
+          1000,
+          pageToken
+        );
+
+        const userRecords = result.users;
+
+        for (const user of userRecords) {
+          const uid = user.uid;
+
+          const [profileSnapshot, purchasesSnapshot] =
+            await Promise.all([
+              db.ref(`studentProfiles/${uid}`).get(),
+              db.ref(`purchases/${uid}`).get()
+            ]);
+
+          const profile = profileSnapshot.exists()
+            ? profileSnapshot.val()
+            : {};
+
+          const purchases = purchasesSnapshot.exists()
+            ? purchasesSnapshot.val()
+            : {};
+
+          const activePurchases = Object.values(
+            purchases
+          ).filter(item =>
+            item?.status === "active"
+          );
+
+          const totalPaidPaise =
+            activePurchases.reduce(
+              (sum, item) =>
+                sum + safeNumber(item.amountPaise),
+              0
+            );
+
+          users.push({
+            uid,
+
+            displayName:
+              profile.displayName ||
+              user.displayName ||
+              "",
+
+            email:
+              user.email || "",
+
+            emailVerified:
+              Boolean(user.emailVerified),
+
+            disabled:
+              Boolean(user.disabled),
+
+            createdAt:
+              user.metadata?.creationTime || null,
+
+            lastSignInAt:
+              user.metadata?.lastSignInTime || null,
+
+            purchaseCount:
+              activePurchases.length,
+
+            totalPaidPaise
+          });
+        }
+
+        pageToken = result.pageToken;
+
+        if (!pageToken) break;
+      }
+
+      res.json({
+        ok: true,
+
+        totalStudents: users.length,
+
+        users
+      });
+
+    } catch (error) {
+      console.error("Admin users error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load students."
+      );
+    }
+  }
+);
+
+/* =========================================
+   37. ADMIN TEST ATTEMPTS
+========================================= */
+
+app.get(
+  "/api/admin/attempts",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const snapshot = await db
+        .ref("testAttempts")
+        .get();
+
+      const data = snapshot.exists()
+        ? snapshot.val()
+        : {};
+
+      const attempts = [];
+
+      for (
+        const [uid, userAttempts]
+        of Object.entries(data)
+      ) {
+        for (
+          const [attemptId, attempt]
+          of Object.entries(userAttempts || {})
+        ) {
+          attempts.push({
+            ...attempt,
+            uid,
+            attemptId
+          });
+        }
+      }
+
+      attempts.sort(
+        (a, b) =>
+          safeNumber(b.submittedAt) -
+          safeNumber(a.submittedAt)
+      );
+
+      res.json({
+        ok: true,
+        attempts
+      });
+
+    } catch (error) {
+      console.error("Admin attempts error:", error);
+
+      sendError(
+        res,
+        500,
+        "Unable to load test attempts."
+      );
+    }
+  }
+);
+
+/* =========================================
+   38. HEALTH CHECK
+========================================= */
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+
+    service: "BIHAR ACADEMIC BATTLE API",
+
+    timestamp: getNow()
+  });
 });
 
-/* ---------- Student: private PDF ---------- */
+/* =========================================
+   39. API NOT FOUND
+========================================= */
 
-app.get("/api/papers/:id/pdf", requireUser, async (req, res) => {
-  try {
-    const id = req.params.id;
-    if (!validId(id)) return res.status(400).json({ error: "Invalid paper ID." });
-
-    const paperSnap = await db.ref(`questionPapers/${id}`).get();
-    const paper = paperSnap.val();
-
-    if (!paper || paper.status !== "published") {
-      return res.status(404).json({ error: "Published PDF not found." });
-    }
-    if (!paper.pdf?.diskName) {
-      return res.status(404).json({ error: "PDF is not attached to this paper." });
-    }
-
-    const purchaseSnap = await db.ref(`purchases/${req.user.uid}`).get();
-    const purchases = purchaseSnap.val() || {};
-    const seriesSnap = await db.ref("testSeries").get();
-    const allSeries = seriesSnap.val() || {};
-
-    let hasAccess = false;
-    if (paper.seriesId && purchases[paper.seriesId]?.status === "active") {
-      hasAccess = true;
-    } else {
-      hasAccess = Object.entries(purchases).some(([seriesId, purchase]) => {
-        if (purchase?.status !== "active") return false;
-        const series = allSeries[seriesId];
-        if (!series) return false;
-
-        const classMatch =
-          normalizeField(series.className) === normalizeField(paper.className) ||
-          normalizeField(series.className) === "all classes" ||
-          normalizeField(paper.className) === "all classes";
-
-        const subjectMatch = normalizeField(series.subject) === normalizeField(paper.subject);
-        return classMatch && subjectMatch;
-      });
-    }
-
-    if (!hasAccess) {
-      return res.status(403).json({
-        error: "Purchase the matching active test series to access this PDF."
-      });
-    }
-
-    await streamPaperPdf(req, res, false);
-  } catch (error) {
-    console.error("Student PDF:", error.message);
-    if (!res.headersSent) res.status(500).json({ error: "Could not open PDF." });
-    else res.destroy(error);
-  }
+app.use("/api", (req, res) => {
+  sendError(
+    res,
+    404,
+    "API endpoint not found."
+  );
 });
 
-/* ---------- Fallback ---------- */
+/* =========================================
+   40. GENERAL ERROR HANDLER
+========================================= */
+
+app.use((error, req, res, next) => {
+  console.error(
+    "Server error:",
+    error
+  );
+
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  sendError(
+    res,
+    500,
+    "Internal server error."
+  );
+});
+
+/* =========================================
+   41. FRONTEND FALLBACK
+========================================= */
 
 app.get(/.*/, (req, res, next) => {
   if (req.path.startsWith("/api/")) {
-    return res.status(404).json({ error: "API route not found." });
+    return next();
   }
-  res.sendFile(path.join(__dirname, "public", "index.html"), error => {
-    if (error) next(error);
-  });
+
+  const indexPath = path.join(
+    PUBLIC_DIR,
+    "index.html"
+  );
+
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
+  res.status(404).send(
+    "Frontend index.html not found in public folder."
+  );
 });
 
-app.use((error, req, res, _next) => {
-  console.error("Unhandled server error:", error.message);
-  if (res.headersSent) return;
-  res.status(500).json({ error: "Unexpected server error." });
-});
-
-/* ---------- Start ---------- */
+/* =========================================
+   42. START SERVER
+========================================= */
 
 app.listen(PORT, () => {
-  console.log(`Bihar Academic Battle server running on port ${PORT}`);
-  console.log(`Private PDF directory: ${STORAGE_DIR}`);
+  console.log(
+    `BIHAR ACADEMIC BATTLE server running on port ${PORT}`
+  );
+
+  console.log(
+    `PDF storage directory: ${STORAGE_DIR}`
+  );
+
+  console.log(
+    `Admin UID count: ${ADMIN_UIDS.size}`
+  );
+
+  console.log(
+    `Razorpay configured: ${Boolean(razorpay)}`
+  );
 });
