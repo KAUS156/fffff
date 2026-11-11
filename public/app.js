@@ -2746,13 +2746,17 @@ function createAdminChart(
         },
 
         scales:
-          type === "doughnut"
-            ? {}
-            : {
-                y: {
-                  beginAtZero: true
-                }
-              }
+  type === "doughnut"
+    ? {}
+    : {
+        y: {
+          beginAtZero: true,
+          grace: '10%',
+          ticks: {
+            precision: 0
+          }
+        }
+      }
       }
     }
   );
