@@ -1,3 +1,4 @@
+
 // server.js
 import "dotenv/config";
 
@@ -8,8 +9,8 @@ import Razorpay from "razorpay";
 import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 /* =========================================
    1. INITIAL CONFIGURATION
@@ -26,11 +27,6 @@ const DB_URL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://babbihar-23fcc-default-rtdb.firebaseio.com/";
 
-const STORAGE_DIR = path.resolve(
-  process.env.STORAGE_DIR ||
-  path.join(__dirname, "private-paper-uploads")
-);
-
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const ADMIN_UIDS = new Set(
@@ -39,10 +35,6 @@ const ADMIN_UIDS = new Set(
     .map(uid => uid.trim())
     .filter(Boolean)
 );
-
-fs.mkdirSync(STORAGE_DIR, {
-  recursive: true
-});
 
 /* =========================================
    2. FIREBASE ADMIN INITIALIZATION
@@ -88,7 +80,67 @@ if (!admin.apps.length) {
 const db = admin.database();
 
 /* =========================================
-   3. RAZORPAY INITIALIZATION
+   3. SUPABASE STORAGE INITIALIZATION
+========================================= */
+
+const SUPABASE_URL =
+  process.env.SUPABASE_URL || "";
+
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+const SUPABASE_PDF_BUCKET =
+  process.env.SUPABASE_PDF_BUCKET || "question-pdfs";
+
+let supabase = null;
+
+if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  );
+} else {
+  console.warn(
+    "WARNING: Supabase PDF storage is not configured."
+  );
+}
+
+function requireSupabaseStorage(res) {
+  if (!supabase) {
+    sendError(
+      res,
+      503,
+      "Supabase PDF storage is not configured. Check Render environment variables."
+    );
+
+    return false;
+  }
+
+  return true;
+}
+
+function getPdfStoragePath(paperId) {
+  if (!isValidId(paperId)) {
+    throw new Error("Invalid paper ID.");
+  }
+
+  return `${paperId}.pdf`;
+}
+
+/*
+  Supabase bucket PRIVATE rahega.
+  Service role key sirf server par use hogi.
+  Public URL generate nahi kiya jayega.
+*/
+
+/* =========================================
+   4. RAZORPAY INITIALIZATION
 ========================================= */
 
 const RAZORPAY_KEY_ID =
@@ -111,7 +163,7 @@ if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
 }
 
 /* =========================================
-   4. EXPRESS MIDDLEWARE
+   5. EXPRESS MIDDLEWARE
 ========================================= */
 
 app.disable("x-powered-by");
@@ -128,7 +180,7 @@ app.use(express.urlencoded({
 app.use(express.static(PUBLIC_DIR));
 
 /* =========================================
-   5. COMMON HELPERS
+   6. COMMON HELPERS
 ========================================= */
 
 function sendError(res, status, message) {
@@ -271,19 +323,144 @@ function getNow() {
   return Date.now();
 }
 
-function safeFilePath(paperId) {
-  if (!isValidId(paperId)) {
-    throw new Error("Invalid paper ID.");
+/* =========================================
+   7. SUPABASE PDF HELPERS
+========================================= */
+
+// Existing metadata ka storagePath bhi support hoga.
+function getPaperPdfPath(paper, paperId) {
+  const savedPath = paper?.pdf?.storagePath;
+
+  if (
+    typeof savedPath === "string" &&
+    savedPath.length > 0 &&
+    !savedPath.startsWith("/") &&
+    !savedPath.includes("..") &&
+    !savedPath.includes("\\")
+  ) {
+    return savedPath;
   }
 
-  return path.join(
-    STORAGE_DIR,
-    `${paperId}.pdf`
+  return getPdfStoragePath(paperId);
+}
+
+// Supabase se PDF download karke response mein bhejna.
+async function sendPdfFromSupabase(
+  res,
+  paper,
+  paperId
+) {
+  if (!requireSupabaseStorage(res)) {
+    return false;
+  }
+
+  const storagePath = getPaperPdfPath(
+    paper,
+    paperId
   );
+
+  const { data, error } = await supabase
+    .storage
+    .from(SUPABASE_PDF_BUCKET)
+    .download(storagePath);
+
+  if (error || !data) {
+    console.error(
+      "Supabase PDF download error:",
+      error
+    );
+
+    sendError(
+      res,
+      404,
+      "PDF file is missing from Supabase Storage. Please upload the PDF again."
+    );
+
+    return false;
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+
+  const buffer = Buffer.from(arrayBuffer);
+
+  res.setHeader(
+    "Content-Type",
+    "application/pdf"
+  );
+
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="${paperId}.pdf"`
+  );
+
+  res.setHeader(
+    "X-Content-Type-Options",
+    "nosniff"
+  );
+
+  res.setHeader(
+    "Content-Length",
+    buffer.length
+  );
+
+  res.setHeader(
+    "Cache-Control",
+    "private, no-store, no-cache, must-revalidate"
+  );
+
+  res.end(buffer);
+
+  return true;
+}
+
+// Supabase mein PDF file available hai ya nahi.
+async function supabasePdfExists(paper, paperId) {
+  if (!supabase) {
+    throw new Error(
+      "Supabase PDF storage is not configured."
+    );
+  }
+
+  const storagePath = getPaperPdfPath(
+    paper,
+    paperId
+  );
+
+  const lastSlash = storagePath.lastIndexOf("/");
+
+  const folder = lastSlash >= 0
+    ? storagePath.slice(0, lastSlash)
+    : "";
+
+  const fileName = lastSlash >= 0
+    ? storagePath.slice(lastSlash + 1)
+    : storagePath;
+
+  const { data, error } = await supabase
+    .storage
+    .from(SUPABASE_PDF_BUCKET)
+    .list(folder, {
+      search: fileName,
+      limit: 100
+    });
+
+  if (error) {
+    console.error(
+      "Supabase PDF existence check error:",
+      error
+    );
+
+    throw new Error(
+      "Unable to verify PDF in Supabase Storage."
+    );
+  }
+
+  return Array.isArray(data) &&
+    data.some(file => file.name === fileName);
 }
 
 /* =========================================
-   6. FIREBASE AUTHENTICATION MIDDLEWARE
+   8. FIREBASE AUTHENTICATION MIDDLEWARE
 ========================================= */
 
 async function requireAuth(req, res, next) {
@@ -358,7 +535,7 @@ function requireRazorpay(res) {
 }
 
 /* =========================================
-   7. DATABASE HELPERS
+   9. DATABASE HELPERS
 ========================================= */
 
 async function getSeries(seriesId) {
@@ -467,7 +644,7 @@ async function grantPurchase({
 }
 
 /* =========================================
-   8. PROFILE HELPERS
+   10. PROFILE HELPERS
 ========================================= */
 
 async function getProfileData(uid) {
@@ -531,7 +708,7 @@ async function getProfileData(uid) {
 }
 
 /* =========================================
-   9. SERIES BODY VALIDATION
+   11. SERIES BODY VALIDATION
 ========================================= */
 
 function normalizeSeriesBody(body = {}) {
@@ -610,7 +787,7 @@ function normalizeSeriesBody(body = {}) {
 }
 
 /* =========================================
-   10. MCQ QUESTION VALIDATION
+   12. MCQ QUESTION VALIDATION
 ========================================= */
 
 function normalizeQuestions(input) {
@@ -686,7 +863,7 @@ function normalizeQuestions(input) {
 }
 
 /* =========================================
-   11. PUBLIC TEST SERIES
+   13. PUBLIC TEST SERIES
 ========================================= */
 
 app.get("/api/series", async (req, res) => {
@@ -727,7 +904,7 @@ app.get("/api/series", async (req, res) => {
 });
 
 /* =========================================
-   12. STUDENT PROFILE
+   14. STUDENT PROFILE
 ========================================= */
 
 app.get(
@@ -810,7 +987,7 @@ app.put(
 );
 
 /* =========================================
-   13. MY PURCHASED SERIES
+   15. MY PURCHASED SERIES
 ========================================= */
 
 app.get(
@@ -871,7 +1048,7 @@ app.get(
 );
 
 /* =========================================
-   14. MY PAYMENT HISTORY
+   16. MY PAYMENT HISTORY
 ========================================= */
 
 app.get(
@@ -945,7 +1122,7 @@ app.get(
 );
 
 /* =========================================
-   15. CREATE RAZORPAY ORDER
+   17. CREATE RAZORPAY ORDER
 ========================================= */
 
 app.post(
@@ -1064,7 +1241,7 @@ app.post(
 );
 
 /* =========================================
-   16. VERIFY RAZORPAY PAYMENT
+   18. VERIFY RAZORPAY PAYMENT
 ========================================= */
 
 app.post(
@@ -1144,7 +1321,6 @@ app.post(
         );
       }
 
-      // Fetch payment directly from Razorpay.
       const payment = await razorpay.payments.fetch(
         paymentId
       );
@@ -1227,7 +1403,7 @@ app.post(
 );
 
 /* =========================================
-   17. STUDENT SERIES ACCESS
+   19. STUDENT SERIES ACCESS
 ========================================= */
 
 app.get(
@@ -1310,7 +1486,7 @@ app.get(
 );
 
 /* =========================================
-   18. ADMIN SERIES LIST
+   20. ADMIN SERIES LIST
 ========================================= */
 
 app.get(
@@ -1351,7 +1527,7 @@ app.get(
 );
 
 /* =========================================
-   19. ADMIN CREATE SERIES
+   21. ADMIN CREATE SERIES
 ========================================= */
 
 app.post(
@@ -1428,7 +1604,7 @@ app.post(
 );
 
 /* =========================================
-   20. ADMIN UPDATE SERIES
+   22. ADMIN UPDATE SERIES
 ========================================= */
 
 app.put(
@@ -1500,7 +1676,7 @@ app.put(
 );
 
 /* =========================================
-   21. ADMIN DISABLE SERIES
+   23. ADMIN DISABLE SERIES
 ========================================= */
 
 app.delete(
@@ -1556,7 +1732,7 @@ app.delete(
 );
 
 /* =========================================
-   22. ADMIN TOGGLE SERIES
+   24. ADMIN TOGGLE SERIES
 ========================================= */
 
 app.post(
@@ -1620,7 +1796,7 @@ app.post(
 );
 
 /* =========================================
-   23. ADMIN PAPER LIST
+   25. ADMIN PAPER LIST
 ========================================= */
 
 app.get(
@@ -1666,7 +1842,7 @@ app.get(
 );
 
 /* =========================================
-   24. ADMIN CREATE / UPDATE MCQ PAPER
+   26. ADMIN CREATE / UPDATE MCQ PAPER
 ========================================= */
 
 app.post(
@@ -1865,7 +2041,7 @@ app.post(
 );
 
 /* =========================================
-   25. PDF UPLOAD CONFIGURATION
+   27. PDF UPLOAD CONFIGURATION
 ========================================= */
 
 const upload = multer({
@@ -1894,7 +2070,7 @@ const upload = multer({
 });
 
 /* =========================================
-   26. ADMIN PDF METADATA
+   28. ADMIN PDF METADATA
 ========================================= */
 
 app.post(
@@ -2069,7 +2245,7 @@ app.post(
 );
 
 /* =========================================
-   27. ADMIN UPLOAD PDF FILE
+   29. ADMIN UPLOAD PDF TO SUPABASE STORAGE
 ========================================= */
 
 app.post(
@@ -2091,6 +2267,8 @@ app.post(
   },
   async (req, res) => {
     try {
+      if (!requireSupabaseStorage(res)) return;
+
       const id = req.params.id;
 
       if (!isValidId(id)) {
@@ -2111,7 +2289,6 @@ app.post(
 
       const pdfBuffer = req.file.buffer;
 
-      // Validate actual PDF file signature.
       if (
         pdfBuffer.length < 5 ||
         pdfBuffer.subarray(0, 5).toString() !== "%PDF-"
@@ -2147,20 +2324,32 @@ app.post(
         );
       }
 
-      const filePath = safeFilePath(id);
+      // Upload PDF to private Supabase bucket.
+      const storagePath = getPdfStoragePath(id);
 
-      const temporaryPath =
-        `${filePath}.${crypto.randomUUID()}.tmp`;
+      const { error: uploadError } = await supabase
+        .storage
+        .from(SUPABASE_PDF_BUCKET)
+        .upload(storagePath, pdfBuffer, {
+          contentType: "application/pdf",
 
-      await fs.promises.writeFile(
-        temporaryPath,
-        pdfBuffer
-      );
+          upsert: true,
 
-      await fs.promises.rename(
-        temporaryPath,
-        filePath
-      );
+          cacheControl: "3600"
+        });
+
+      if (uploadError) {
+        console.error(
+          "Supabase PDF upload error:",
+          uploadError
+        );
+
+        return sendError(
+          res,
+          500,
+          "Unable to upload PDF to Supabase Storage."
+        );
+      }
 
       const fileInfo = {
         fileName: `${id}.pdf`,
@@ -2173,6 +2362,10 @@ app.post(
         size: pdfBuffer.length,
 
         mimeType: "application/pdf",
+
+        storagePath,
+
+        storageType: "supabase",
 
         uploadedAt: getNow()
       };
@@ -2188,7 +2381,7 @@ app.post(
 
         id,
 
-        message: "PDF uploaded successfully.",
+        message: "PDF uploaded successfully to Supabase Storage.",
 
         pdf: fileInfo
       });
@@ -2199,14 +2392,14 @@ app.post(
       sendError(
         res,
         500,
-        "Unable to upload PDF."
+        error.message || "Unable to upload PDF."
       );
     }
   }
 );
 
 /* =========================================
-   28. ADMIN PREVIEW PDF
+   30. ADMIN PREVIEW PDF FROM SUPABASE
 ========================================= */
 
 app.get(
@@ -2235,34 +2428,10 @@ app.get(
         );
       }
 
-      const filePath = safeFilePath(id);
-
-      if (!fs.existsSync(filePath)) {
-        return sendError(
-          res,
-          404,
-          "PDF file is missing from storage."
-        );
-      }
-
-      res.setHeader(
-        "Content-Type",
-        "application/pdf"
-      );
-
-      res.setHeader(
-        "Content-Disposition",
-        `inline; filename="${id}.pdf"`
-      );
-
-      res.setHeader(
-        "X-Content-Type-Options",
-        "nosniff"
-      );
-
-      await pipeline(
-        fs.createReadStream(filePath),
-        res
+      await sendPdfFromSupabase(
+        res,
+        paper,
+        id
       );
 
     } catch (error) {
@@ -2280,7 +2449,7 @@ app.get(
 );
 
 /* =========================================
-   29. PUBLISH / UNPUBLISH PAPER
+   31. PUBLISH / UNPUBLISH PAPER
 ========================================= */
 
 app.post(
@@ -2332,16 +2501,29 @@ app.post(
         );
       }
 
-      if (
-        published &&
-        paper.type === "pdf" &&
-        !paper.pdf
-      ) {
-        return sendError(
-          res,
-          400,
-          "Upload the PDF before publishing."
+      if (published && paper.type === "pdf") {
+        if (!paper.pdf) {
+          return sendError(
+            res,
+            400,
+            "Upload the PDF before publishing."
+          );
+        }
+
+        if (!requireSupabaseStorage(res)) return;
+
+        const exists = await supabasePdfExists(
+          paper,
+          id
         );
+
+        if (!exists) {
+          return sendError(
+            res,
+            400,
+            "PDF file is missing from Supabase Storage. Upload it again before publishing."
+          );
+        }
       }
 
       if (
@@ -2381,14 +2563,14 @@ app.post(
       sendError(
         res,
         500,
-        "Unable to update paper status."
+        error.message || "Unable to update paper status."
       );
     }
   }
 );
 
 /* =========================================
-   30. DELETE PAPER
+   32. DELETE PAPER AND SUPABASE PDF
 ========================================= */
 
 app.delete(
@@ -2423,20 +2605,40 @@ app.delete(
 
       const paper = snapshot.val();
 
-      await ref.remove();
+      // Delete PDF from Supabase Storage first.
+      if (paper.type === "pdf" && paper.pdf) {
+        if (!requireSupabaseStorage(res)) return;
 
-      if (paper.type === "pdf") {
-        const filePath = safeFilePath(id);
-
-        await fs.promises.rm(
-          filePath,
-          { force: true }
+        const storagePath = getPaperPdfPath(
+          paper,
+          id
         );
+
+        const { error } = await supabase
+          .storage
+          .from(SUPABASE_PDF_BUCKET)
+          .remove([storagePath]);
+
+        if (error) {
+          console.error(
+            "Supabase PDF delete error:",
+            error
+          );
+
+          return sendError(
+            res,
+            500,
+            "Unable to delete PDF from Supabase Storage."
+          );
+        }
       }
+
+      // Delete Firebase metadata.
+      await ref.remove();
 
       res.json({
         ok: true,
-        message: "Paper deleted successfully."
+        message: "Paper and its PDF deleted successfully."
       });
 
     } catch (error) {
@@ -2445,14 +2647,14 @@ app.delete(
       sendError(
         res,
         500,
-        "Unable to delete paper."
+        error.message || "Unable to delete paper."
       );
     }
   }
 );
 
 /* =========================================
-   31. STUDENT PAPER LIST
+   33. STUDENT PAPER LIST
 ========================================= */
 
 app.get(
@@ -2477,7 +2679,7 @@ app.get(
       const purchases = await getPurchasedSeries(uid);
 
       const papers = Object.entries(allPapers)
-        .filter(([id, paper]) => {
+        .filter(([, paper]) => {
           if (paper.status !== "published") {
             return false;
           }
@@ -2515,7 +2717,7 @@ app.get(
 );
 
 /* =========================================
-   32. STUDENT GET MCQ QUESTIONS
+   34. STUDENT GET MCQ QUESTIONS
 ========================================= */
 
 app.get(
@@ -2598,7 +2800,7 @@ app.get(
 );
 
 /* =========================================
-   33. STUDENT DOWNLOAD / VIEW PDF
+   35. STUDENT VIEW / DOWNLOAD PDF
 ========================================= */
 
 app.get(
@@ -2631,6 +2833,7 @@ app.get(
         );
       }
 
+      // Student purchase verification preserved.
       const allowed = await hasPaperAccess(
         req.user.uid,
         paper.seriesId
@@ -2644,39 +2847,10 @@ app.get(
         );
       }
 
-      const filePath = safeFilePath(id);
-
-      if (!fs.existsSync(filePath)) {
-        return sendError(
-          res,
-          404,
-          "PDF file is missing from storage."
-        );
-      }
-
-      res.setHeader(
-        "Content-Type",
-        "application/pdf"
-      );
-
-      res.setHeader(
-        "Content-Disposition",
-        `inline; filename="${id}.pdf"`
-      );
-
-      res.setHeader(
-        "X-Content-Type-Options",
-        "nosniff"
-      );
-
-      res.setHeader(
-        "Cache-Control",
-        "private, no-store, no-cache, must-revalidate"
-      );
-
-      await pipeline(
-        fs.createReadStream(filePath),
-        res
+      await sendPdfFromSupabase(
+        res,
+        paper,
+        id
       );
 
     } catch (error) {
@@ -2694,7 +2868,7 @@ app.get(
 );
 
 /* =========================================
-   34. STUDENT SUBMIT MCQ TEST
+   36. STUDENT SUBMIT MCQ TEST
 ========================================= */
 
 app.post(
@@ -2916,7 +3090,7 @@ app.post(
 );
 
 /* =========================================
-   35. ADMIN PURCHASES
+   37. ADMIN PURCHASES
 ========================================= */
 
 app.get(
@@ -3026,7 +3200,7 @@ app.get(
 );
 
 /* =========================================
-   36. ADMIN STUDENTS
+   38. ADMIN STUDENTS
 ========================================= */
 
 app.get(
@@ -3139,7 +3313,7 @@ app.get(
 );
 
 /* =========================================
-   37. ADMIN TEST ATTEMPTS
+   39. ADMIN TEST ATTEMPTS
 ========================================= */
 
 app.get(
@@ -3198,7 +3372,7 @@ app.get(
 );
 
 /* =========================================
-   38. HEALTH CHECK
+   40. HEALTH CHECK
 ========================================= */
 
 app.get("/api/health", (req, res) => {
@@ -3212,7 +3386,7 @@ app.get("/api/health", (req, res) => {
 });
 
 /* =========================================
-   39. API NOT FOUND
+   41. API NOT FOUND
 ========================================= */
 
 app.use("/api", (req, res) => {
@@ -3224,7 +3398,7 @@ app.use("/api", (req, res) => {
 });
 
 /* =========================================
-   40. GENERAL ERROR HANDLER
+   42. GENERAL ERROR HANDLER
 ========================================= */
 
 app.use((error, req, res, next) => {
@@ -3245,7 +3419,7 @@ app.use((error, req, res, next) => {
 });
 
 /* =========================================
-   41. FRONTEND FALLBACK
+   43. FRONTEND FALLBACK
 ========================================= */
 
 app.get(/.*/, (req, res, next) => {
@@ -3268,7 +3442,7 @@ app.get(/.*/, (req, res, next) => {
 });
 
 /* =========================================
-   42. START SERVER
+   44. START SERVER
 ========================================= */
 
 app.listen(PORT, () => {
@@ -3277,7 +3451,11 @@ app.listen(PORT, () => {
   );
 
   console.log(
-    `PDF storage directory: ${STORAGE_DIR}`
+    `Supabase configured: ${Boolean(supabase)}`
+  );
+
+  console.log(
+    `Supabase PDF bucket: ${SUPABASE_PDF_BUCKET}`
   );
 
   console.log(

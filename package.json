@@ -11,6 +11,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "firebase-admin": "^13.10.0",
