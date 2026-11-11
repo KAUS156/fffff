@@ -1,0 +1,5 @@
+
+User-agent: *
+Allow: /
+
+Sitemap: https://fffff-cb1u.onrender.com/sitemap.xml
