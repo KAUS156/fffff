@@ -1,5 +1,3 @@
-
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 
 import {
@@ -9,7 +7,9 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
-  updateProfile
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 
 /* ==========================================
@@ -33,6 +33,9 @@ const API_BASE = "/api";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+
+/* Google Auth Provider */
+const googleProvider = new GoogleAuthProvider();
 
 /* 2. GLOBAL STATE */
 
@@ -371,6 +374,37 @@ async function login() {
     showNotice(error.message, "error");
   } finally {
     setButtonLoading($("loginBtn"), false);
+  }
+}
+
+/* ==========================================
+   8.1. GOOGLE LOGIN
+========================================== */
+
+async function loginWithGoogle() {
+  try {
+    setButtonLoading(
+      $("googleLoginBtn"),
+      true,
+      "Signing in with Google..."
+    );
+
+    await signInWithPopup(auth, googleProvider);
+
+    showNotice("Google से Login successful।");
+
+  } catch (error) {
+    // User closed the popup → silent
+    if (
+      error.code === "auth/popup-closed-by-user" ||
+      error.code === "auth/cancelled-popup-request"
+    ) {
+      return;
+    }
+
+    showNotice(error.message, "error");
+  } finally {
+    setButtonLoading($("googleLoginBtn"), false);
   }
 }
 
@@ -3049,6 +3083,11 @@ function bindEvents() {
     login
   );
 
+  $("googleLoginBtn")?.addEventListener(
+    "click",
+    loginWithGoogle
+  );
+
   $("signupBtn")?.addEventListener(
     "click",
     signup
@@ -3266,3 +3305,4 @@ showView("store");
 console.log(
   "BIHAR ACADEMIC BATTLE app.js loaded successfully."
 );
+
